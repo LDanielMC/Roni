@@ -15,4 +15,5 @@
   biblioteca estándar de C++ (`__std_find_trivial_*`, `__std_min_element_*`…) que solo trae la 2022. Dani autorizó instalar
   las Build Tools 2022 (componente C++ + SDK de Windows 11) y Rust estable (rustup, perfil mínimo). La CI original usa `windows-latest` (VS 2022).
 - **Las reglas de release de Coucou (CHANGELOG, tabla de versiones, what's new) no aplican a Roni hasta la Rebanada 6**
-  (ver `CLAUDE.md`, "Cómo conviven las dos guías"). Pendiente de que Dani lo confirme o lo cambie.
+  (ver `CLAUDE.md`, "Cómo conviven las dos guías"). Confirmado por Dani.
+- **El subagente `revisor` se versiona en git** (`.claude/agents/`); el resto de `.claude/` sigue ignorado (`.gitignore`). `CLAUDE.roni.md` se borró: su contenido está en `CLAUDE.md`.
