@@ -1,4 +1,4 @@
-//! `coucou-hook --statusline`: Claude Code's status line command, for the plan
+//! `roni-hook --statusline`: Claude Code's status line command, for the plan
 //! usage pill.
 //!
 //! Claude Code hands its status line command the session's JSON on stdin, and

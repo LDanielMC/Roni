@@ -208,3 +208,28 @@ Resultado de la Rebanada 0 (sin cambios al código): todo lo anterior compila y 
    (`%APPDATA%\Coucou`), las claves del Administrador de credenciales y la tubería de los hooks. Además, al arrancar reemplaza
    `%LOCALAPPDATA%\Coucou\bin\coucou-hook.exe` por la versión de prueba (`ensure_hook_exe`, `hooks.rs:350`); Coucou 0.5.3 lo restaura al volver a abrirse.
 4. Para volver atrás: cierra la versión de prueba (bandeja → Salir) y abre de nuevo Coucou 0.5.3.
+
+## 11. Estado después de la Rebanada 1 (nombres nuevos)
+
+Este mapa se escribió antes de renombrar: donde diga `coucou`, `Coucou` o `coucou-hook` en las secciones 1 a 9, ahora es `roni`, `Roni` y `roni-hook`
+(las rutas y números de línea siguen siendo los mismos salvo donde se anotó). Lo que cambió de verdad:
+
+| Qué | Antes | Ahora |
+|---|---|---|
+| Datos (preferencias) | `%APPDATA%\Coucou` | `%APPDATA%\Roni` |
+| Datos locales (hook, modelos, registro) | `%LOCALAPPDATA%\Coucou` | `%LOCALAPPDATA%\Roni` |
+| Hook | `coucou-hook.exe` | `roni-hook.exe` |
+| Named pipe | `\\.\pipe\coucou-<SID>` | `\\.\pipe\roni-<SID>` |
+| Identificador / servicio de credenciales | `fr.louisraille.coucou` | `dev.roni.desktop` |
+| Marca en `settings.json` de Claude Code | `coucou-hook` | `roni-hook` |
+| Ejecutable | `coucou.exe` | `roni.exe` |
+| Atajos globales | `Ctrl+Alt+…` | `Ctrl+Alt+Shift+…` |
+| Actualizador | activo (con permiso) | apagado (`UPDATES_ENABLED`, `update.rs`) |
+| Sonidos | 29 WAV de Mochi (`../NotchBuddy/Resources/sounds`) | ninguno (`windows/sounds/`) |
+
+Siguen existiendo, a propósito: el personaje Mochi dibujado en `src/mochi/` (Rebanada 2), los nombres internos en minúscula (`mochiOutfit`, `desktop_mochi_*`),
+el protocolo del teléfono (`coucou://`, `_coucou._tcp`) y la frase de voz, que ahora es solo "OK Roni" en `voice/wake.rs` (la definitiva, "Oye Roni", es de la Rebanada 5). Ver `decisiones.md`.
+
+**Si quieres reusar lo de tu Coucou instalado** (no se hace solo, y copiar no borra nada): los modelos de voz pesan cientos de MB; en PowerShell,
+con las dos apps cerradas: `Copy-Item "$env:LOCALAPPDATA\Coucou\Models" "$env:LOCALAPPDATA\Roni\Models" -Recurse`.
+Las claves (Administrador de credenciales) no se copian: Roni empieza sin ninguna, y el token de OpenClaw se pide en la Rebanada 3.

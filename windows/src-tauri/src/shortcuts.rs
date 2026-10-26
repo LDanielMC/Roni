@@ -3,11 +3,15 @@
 // The shortcuts are registered from Rust through tauri-plugin-global-shortcut
 // (RegisterHotKey on Windows, XGrabKey on X11). Wayland has no key grabs: there
 // they go to the desktop through the XDG GlobalShortcuts portal (portal.rs), and
-// where there is no such portal Settings lists `coucou --shortcut <id>` commands
+// where there is no such portal Settings lists `roni --shortcut <id>` commands
 // to bind by hand. A press is handed to the island
 // as a `shortcut` event carrying the action id; the island does the rest, the
 // same way it handles the tray menu. The wardrobe is the exception: it goes out
 // as its own `open-wardrobe` event, which the wardrobe view listens to.
+//
+// Roni's defaults all carry Shift on top of the keys described below
+// (Ctrl+Alt+Shift+Space, +A, +T…), so Roni and an installed Coucou can run at the
+// same time without fighting over the same global keys.
 //
 // Default keys. The Mac uses ⌃⌥ + a letter. On Windows Ctrl+Alt *is* AltGr on
 // most European layouts, so a global Ctrl+Alt+E would swallow every € typed on
@@ -58,17 +62,17 @@ const fn action(id: &'static str, keys: &'static str, on: bool, ported: bool) ->
 
 /// Same order as `ShortcutAction.allCases`.
 pub const ACTIONS: &[ActionDef] = &[
-    action("toggleIsland", "Ctrl+Alt+N", false, true),
-    action("openChat", "Ctrl+Alt+Space", true, true),
-    action("goToAlert", "Ctrl+Alt+A", true, true),
-    action("jumpToTerminal", "Ctrl+Alt+T", true, true),
+    action("toggleIsland", "Ctrl+Alt+Shift+N", false, true),
+    action("openChat", "Ctrl+Alt+Shift+Space", true, true),
+    action("goToAlert", "Ctrl+Alt+Shift+A", true, true),
+    action("jumpToTerminal", "Ctrl+Alt+Shift+T", true, true),
     // Dragging Mochi onto a window is not in this version.
-    action("attachFrontWindow", "Ctrl+Alt+F", true, false),
-    action("nextPill", "Ctrl+Alt+Right", true, true),
-    action("prevPill", "Ctrl+Alt+Left", true, true),
-    action("muteToggle", "Ctrl+Alt+S", true, true),
-    action("desktopToggle", "Ctrl+Alt+D", true, true),
-    action("wardrobeToggle", "Ctrl+Alt+G", true, true),
+    action("attachFrontWindow", "Ctrl+Alt+Shift+F", true, false),
+    action("nextPill", "Ctrl+Alt+Shift+Right", true, true),
+    action("prevPill", "Ctrl+Alt+Shift+Left", true, true),
+    action("muteToggle", "Ctrl+Alt+Shift+S", true, true),
+    action("desktopToggle", "Ctrl+Alt+Shift+D", true, true),
+    action("wardrobeToggle", "Ctrl+Alt+Shift+G", true, true),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -89,10 +93,10 @@ pub fn description(id: &str) -> &'static str {
         "attachFrontWindow" => n_("Attach the front window to the chat"),
         "nextPill" => n_("Next pill"),
         "prevPill" => n_("Previous pill"),
-        "muteToggle" => n_("Mute or unmute Mochi"),
-        "desktopToggle" => n_("Send Mochi to the desktop"),
+        "muteToggle" => n_("Mute or unmute Roni"),
+        "desktopToggle" => n_("Send Roni to the desktop"),
         "wardrobeToggle" => n_("Open the wardrobe"),
-        _ => "Coucou",
+        _ => "Roni",
     }
 }
 
@@ -294,7 +298,7 @@ pub fn plan(
         .collect()
 }
 
-/// `coucou --shortcut <id>` → the action id, when it names a ported one.
+/// `roni --shortcut <id>` → the action id, when it names a ported one.
 pub fn from_args(args: &[String]) -> Option<&'static str> {
     let at = args.iter().position(|a| a == "--shortcut")?;
     let def = find(args.get(at + 1)?)?;
@@ -422,7 +426,7 @@ fn launch_command() -> String {
         .map(std::path::PathBuf::from)
         .or_else(|| std::env::current_exe().ok())
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "coucou".to_string());
+        .unwrap_or_else(|| "roni".to_string());
     if exe.contains(' ') {
         format!("\"{exe}\"")
     } else {
@@ -678,7 +682,7 @@ mod wayland {
         #[test]
         fn every_action_has_a_description() {
             for def in ACTIONS {
-                assert_ne!(description(def.id), "Coucou", "{}", def.id);
+                assert_ne!(description(def.id), "Roni", "{}", def.id);
             }
         }
     }
@@ -787,7 +791,7 @@ mod tests {
     #[test]
     fn a_combination_used_twice_is_registered_once() {
         let mut stored = Bindings::new();
-        let same = Binding { keys: "Ctrl+Alt+A".into(), enabled: true };
+        let same = Binding { keys: "Ctrl+Alt+Shift+A".into(), enabled: true };
         stored.insert("jumpToTerminal".into(), same.clone());
         let plan = plan(&stored, never);
         let alert = plan.iter().find(|(d, _)| d.id == "goToAlert").unwrap();
@@ -801,7 +805,7 @@ mod tests {
         assert!(plan.iter().all(|(d, o)| o.is_ok() || !d.ported || d.id == "toggleIsland"));
 
         // A disabled action doesn't hold its keys.
-        stored.insert("goToAlert".into(), Binding { keys: "Ctrl+Alt+A".into(), enabled: false });
+        stored.insert("goToAlert".into(), Binding { keys: "Ctrl+Alt+Shift+A".into(), enabled: false });
         stored.insert("jumpToTerminal".into(), same);
         let plan = super::plan(&stored, never);
         let term = plan.iter().find(|(d, _)| d.id == "jumpToTerminal").unwrap();
@@ -826,7 +830,7 @@ mod tests {
         let chat = effective(find("openChat").unwrap(), &stored);
         assert_eq!(chat.keys, "Ctrl+Shift+K");
         let alert = effective(find("goToAlert").unwrap(), &stored);
-        assert_eq!(alert, Binding { keys: "Ctrl+Alt+A".into(), enabled: true });
+        assert_eq!(alert, Binding { keys: "Ctrl+Alt+Shift+A".into(), enabled: true });
         let toggle = effective(find("toggleIsland").unwrap(), &stored);
         assert!(!toggle.enabled);
         let plan = plan(&stored, never);
@@ -850,12 +854,12 @@ mod tests {
     #[test]
     fn the_command_line_names_an_action() {
         let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "openChat"])), Some("openChat"));
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "wardrobeToggle"])), Some("wardrobeToggle"));
-        assert_eq!(from_args(&args(&["coucou", "--shortcut"])), None);
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "rm -rf"])), None);
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "desktopToggle"])), Some("desktopToggle"));
-        assert_eq!(from_args(&args(&["coucou", "--shortcut", "attachFrontWindow"])), None);
-        assert_eq!(from_args(&args(&["coucou"])), None);
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "openChat"])), Some("openChat"));
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "wardrobeToggle"])), Some("wardrobeToggle"));
+        assert_eq!(from_args(&args(&["roni", "--shortcut"])), None);
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "rm -rf"])), None);
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "desktopToggle"])), Some("desktopToggle"));
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "attachFrontWindow"])), None);
+        assert_eq!(from_args(&args(&["roni"])), None);
     }
 }

@@ -122,7 +122,7 @@ fn save_settings(app: AppHandle, shared: State<Shared>, settings: Settings) {
         let manager = app.autolaunch();
         let result = if settings.autostart { manager.enable() } else { manager.disable() };
         if let Err(err) = result {
-            eprintln!("[coucou] autostart: {err}");
+            eprintln!("[roni] autostart: {err}");
         }
     }
     if screen_changed {
@@ -156,7 +156,7 @@ fn set_system_languages(app: AppHandle, languages: Vec<String>) {
 fn language_changed(app: &AppHandle) {
     tray::retitle(app);
     if let Some(window) = app.get_webview_window(HUB_LABEL) {
-        let _ = window.set_title("Coucou");
+        let _ = window.set_title("Roni");
     }
 }
 
@@ -695,7 +695,7 @@ fn create_settings_window(app: &AppHandle) {
     let url = settings_page_url(app);
     match WebviewWindowBuilder::new(app, HUB_LABEL, url)
         .additional_browser_args(BROWSER_ARGS)
-        .title("Coucou")
+        .title("Roni")
         .inner_size(1100.0, 720.0)
         .min_inner_size(820.0, 560.0)
         .resizable(true)
@@ -720,7 +720,7 @@ fn create_settings_window(app: &AppHandle) {
                 _ => {}
             });
         }
-        Err(err) => log::line(format!("Coucou window failed: {err}")),
+        Err(err) => log::line(format!("Roni window failed: {err}")),
     }
 }
 
@@ -750,7 +750,7 @@ pub fn show_settings_window(app: &AppHandle) {
 /// "settings", "general", "shortcuts"…).
 pub fn show_hub(app: &AppHandle, page: Option<&str>) {
     let Some(win) = app.get_webview_window(HUB_LABEL) else {
-        log::line("Coucou window missing");
+        log::line("Roni window missing");
         return;
     };
     if let Some(page) = page {
@@ -783,7 +783,7 @@ pub fn run() {
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            // `coucou --shortcut <action>`: what a desktop's own keyboard
+            // `roni --shortcut <action>`: what a desktop's own keyboard
             // settings run where we can't listen for keys ourselves (Wayland).
             match shortcuts::from_args(&argv) {
                 Some(action) => shortcuts::dispatch(app, action),
@@ -1002,7 +1002,7 @@ pub fn run() {
             gate.set_active(true);
             island::spawn_cursor_poll(handle.clone(), gate.clone());
 
-            log::line(format!("--- Coucou {} started ---", env!("CARGO_PKG_VERSION")));
+            log::line(format!("--- Roni {} started ---", env!("CARGO_PKG_VERSION")));
             hooks::ensure_hook_exe(&handle);
             pipe::start(handle.clone());
             phone_link::start_if_enabled(&handle);
@@ -1025,7 +1025,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("error while building Coucou")
+        .expect("error while building Roni")
         .run(|app, event| {
             // Withdraw the phone link's announcement on the local network before the process ends.
             if let tauri::RunEvent::Exit = event {
@@ -1060,7 +1060,7 @@ mod tests {
 
     #[test]
     fn only_an_existing_file_by_its_full_path_reaches_the_editor() {
-        let dir = std::env::temp_dir().join(format!("coucou-diff-file-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("roni-diff-file-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("edited.ts");
         std::fs::write(&file, "x").unwrap();

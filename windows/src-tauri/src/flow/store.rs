@@ -1,7 +1,7 @@
 // Everything the Coucou window shows and edits about dictation: the history,
 // the numbers, the dictionary, the snippets, the styles and the preferences.
 // Small JSON files in the app's folder (%LOCALAPPDATA%\Coucou\Flow or
-// ~/.local/share/coucou/Flow), on this computer only. Port of FlowStore.swift.
+// ~/.local/share/roni/Flow), on this computer only. Port of FlowStore.swift.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
@@ -340,7 +340,7 @@ mod tests {
     use super::*;
 
     fn temp_store() -> (Store, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("coucou-flow-{}-{}", std::process::id(), new_id()));
+        let dir = std::env::temp_dir().join(format!("roni-flow-{}-{}", std::process::id(), new_id()));
         (Store::load_from(dir.clone()), dir)
     }
 

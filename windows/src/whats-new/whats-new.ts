@@ -185,12 +185,10 @@ export function showsUpdateHint(waiting: boolean, state: BotStateName, pending: 
 }
 
 /** The release page of this version, for "All changes". */
-export function releasePage(platform: "windows" | "linux", version: string): string {
-  return `https://github.com/Louis-CFM/coucou/releases/tag/${platform}-v${encodeURIComponent(version)}`;
+export function releasePage(_platform: "windows" | "linux", _version: string): string {
+  // Roni publishes no release page yet (Rebanada 6); never the original project's.
+  return "";
 }
-
-/** Buy Mochi a coffee: the same Stripe link as the Coucou page (docs/index.html). */
-export const COFFEE_URL = "https://buy.stripe.com/dRm6oGbfa7Kqcqs0hxes003";
 
 /** The blue of an update, and of the arrow badge. */
 export const UPDATE_BLUE = "#3B82F6";

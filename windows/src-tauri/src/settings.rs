@@ -205,7 +205,7 @@ fn not_loaded() -> MutexGuard<'static, Vec<PathBuf>> {
     NOT_LOADED.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// One line in coucou.log. Tests must never write to the real one.
+/// One line in roni.log. Tests must never write to the real one.
 fn note(message: String) {
     #[cfg(not(test))]
     crate::log::line(message);
@@ -250,7 +250,7 @@ fn salvage(fields: Map<String, Value>) -> Settings {
 
 /// The log line for a field `salvage` had to drop. The name comes straight from
 /// the file, so it is written escaped: a line break in it must not be able to
-/// start what looks like another line of coucou.log.
+/// start what looks like another line of roni.log.
 fn unusable_field(key: &str) -> String {
     format!("settings.json: {key:?} is not usable — its default is used instead")
 }
@@ -403,7 +403,7 @@ fn save_to(path: &Path, settings: &Settings) -> std::io::Result<()> {
 
     // Write beside the target and rename over it: a crash, a full disk or a
     // power cut leaves the previous settings.json intact rather than half a file.
-    let temp = path.with_extension(format!("json.coucou-{}", std::process::id()));
+    let temp = path.with_extension(format!("json.roni-{}", std::process::id()));
     let written = std::fs::File::create(&temp)
         .and_then(|mut file| write_whole(&mut file, &json))
         .and_then(|()| std::fs::rename(&temp, path));
@@ -485,7 +485,7 @@ mod tests {
     /// A fresh directory of our own, and the settings.json it will hold.
     fn scratch(name: &str) -> (PathBuf, PathBuf) {
         let dir = std::env::temp_dir()
-            .join(format!("coucou-settings-{name}-{}", std::process::id()));
+            .join(format!("roni-settings-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("settings.json");
@@ -1004,7 +1004,7 @@ mod tests {
         // directory squatting on that name, the write cannot even start.
         let (dir, file) = scratch("blocked");
         std::fs::write(&file, CUSTOM).unwrap();
-        let temp = dir.join(format!("settings.json.coucou-{}", std::process::id()));
+        let temp = dir.join(format!("settings.json.roni-{}", std::process::id()));
         std::fs::create_dir(&temp).unwrap();
 
         assert!(save_to(&file, &Settings::default()).is_err());

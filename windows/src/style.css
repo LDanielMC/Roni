@@ -3005,7 +3005,7 @@ html[data-dir="rtl"] #views :is(.wa-text, .wa-field, .wa-preview) {
 
 /* ── Arabic: right to left ─────────────────────────────────────────────────────
    i18n.ts sets <html data-dir="rtl">. The text of the cards reads and aligns
-   right to left; Mochi, the pills, the header and the cards themselves keep
+   right to left; Roni, the pills, the header and the cards themselves keep
    their places, and code, commands and the contribution grid stay left to
    right. A chat message follows its own text's direction (an English answer
    stays left to right). */

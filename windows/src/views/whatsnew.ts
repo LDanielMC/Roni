@@ -9,7 +9,7 @@ import { Updates } from "../island/update";
 import { formatCount, formatDuration } from "../recap/summary";
 import { STAT_ICONS, WHATS_NEW_ICONS } from "../whats-new/icons";
 import { WhatsNew } from "../whats-new/controller";
-import { COFFEE_URL, iconName, localized, releasePage, type Stat } from "../whats-new/whats-new";
+import { iconName, localized, releasePage, type Stat } from "../whats-new/whats-new";
 import type { ViewHost } from "./views";
 import { language, t } from "../i18n/i18n";
 
@@ -63,11 +63,11 @@ export function buildWhatsNew(): ViewHost {
     }
     const page = releasePage(Updates.status.platform, release.version);
     stack.append(
-      h("div", { class: "title one-line", text: t("You're on Coucou {version}", { version: release.version }) }),
+      h("div", { class: "title one-line", text: t("You're on Roni {version}", { version: release.version }) }),
       grid,
       h("div", { class: "actions" },
         btn(t("Next"), "primary", () => WhatsNew.next()),
-        btn(t("All changes"), "secondary", () => WhatsNew.openReleasePage(page)),
+        ...(page ? [btn(t("All changes"), "secondary", () => WhatsNew.openReleasePage(page))] : []),
       ),
     );
   }
@@ -83,13 +83,11 @@ export function buildWhatsNew(): ViewHost {
         ),
       ));
     }
-    stack.append(h("div", { class: "title one-line", text: t("Your Coucou so far") }));
+    stack.append(h("div", { class: "title one-line", text: t("Your Roni so far") }));
     if (WhatsNew.stats.length > 0) stack.append(chips);
     stack.append(
-      h("div", { class: "sub whatsnew-thanks", text: t("Coucou is free and open source. If it saves you time, you can buy Mochi a coffee.") }),
       h("div", { class: "actions" },
-        btn(`☕ ${t("Buy Mochi a coffee")}`, "primary", () => WhatsNew.openCoffee(COFFEE_URL)),
-        btn(t("OK"), "secondary", () => WhatsNew.done()),
+        btn(t("OK"), "primary", () => WhatsNew.done()),
       ),
     );
   }

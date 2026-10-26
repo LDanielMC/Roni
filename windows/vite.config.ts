@@ -3,20 +3,21 @@ import { existsSync, mkdirSync, readdirSync, copyFileSync, createReadStream } fr
 import { resolve, join, extname } from "node:path";
 
 // ───────────────────────────────────────────────────────────────────────────────
-// THE one and only place the shared sound folder is declared.
-// The 29 WAVs live in the macOS app and are NOT duplicated in the repo; when they
-// move to `shared/sounds/`, change this single line.
-export const SOUNDS_DIR = resolve(__dirname, "../NotchBuddy/Resources/sounds");
+// THE one and only place the sound folder is declared.
+// Roni ships no sounds yet: windows/sounds/ holds only a README, so the app is
+// silent. The original app's WAVs (../NotchBuddy/Resources/sounds) are not Roni's
+// to use (LICENSE-ASSETS.md) and are deliberately not pointed at.
+export const SOUNDS_DIR = resolve(__dirname, "sounds");
 // ───────────────────────────────────────────────────────────────────────────────
 
 /**
  * Serves SOUNDS_DIR at /sounds/*.wav in dev, and copies it into dist/sounds on build.
- * Keeps the WAVs out of windows/ while still shipping them inside the installer.
+ * Copies any WAV dropped in windows/sounds/ into the app (none for now).
  */
 function sharedSounds(): Plugin {
   const prefix = "/sounds/";
   return {
-    name: "coucou-shared-sounds",
+    name: "roni-shared-sounds",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         if (!req.url?.startsWith(prefix)) return next();
@@ -30,10 +31,7 @@ function sharedSounds(): Plugin {
     },
     closeBundle() {
       const out = resolve(__dirname, "dist/sounds");
-      if (!existsSync(SOUNDS_DIR)) {
-        this.warn(`sounds not found at ${SOUNDS_DIR} — the build will ship without audio`);
-        return;
-      }
+      if (!existsSync(SOUNDS_DIR)) return;
       mkdirSync(out, { recursive: true });
       for (const f of readdirSync(SOUNDS_DIR)) {
         if (extname(f) === ".wav") copyFileSync(join(SOUNDS_DIR, f), join(out, f));

@@ -202,7 +202,7 @@ fn interop_server() {
                     allowed: 20.0,
                     denied: 3.0,
                     top_agent: Some("Claude Code".into()),
-                    top_project: Some("/home/someone/private/coucou".into()),
+                    top_project: Some("/home/someone/private/roni".into()),
                 }),
                 (Some("recapnone"), _, _) => hub.publish_recap(RecapIn::default()),
                 (Some("diffs"), Some(state), _) => switches.diffs.store(state == "on", Ordering::SeqCst),

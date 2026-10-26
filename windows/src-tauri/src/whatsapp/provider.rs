@@ -162,10 +162,10 @@ impl Provider {
             *slot.lock().await = Some(id.clone());
             return Ok((id, status));
         }
-        let (made, made_code) = http.call(Method::POST, "/devices", &[], Some(json!({"device_id": "coucou"})), Duration::from_secs(10)).await?;
+        let (made, made_code) = http.call(Method::POST, "/devices", &[], Some(json!({"device_id": "roni"})), Duration::from_secs(10)).await?;
         Self::gowa_check(&made, made_code)?;
-        *slot.lock().await = Some("coucou".into());
-        Ok(("coucou".into(), Status { link: Link::NeedsQr, me: None }))
+        *slot.lock().await = Some("roni".into());
+        Ok(("roni".into(), Status { link: Link::NeedsQr, me: None }))
     }
 
     async fn gowa_id(http: &Http, slot: &tokio::sync::Mutex<Option<String>>) -> Result<String, WaError> {
@@ -211,7 +211,7 @@ impl Provider {
             .iter()
             .find(|s| s.status == "ready")
             .or_else(|| all.iter().find(|s| Some(&s.id) == known.as_ref()))
-            .or_else(|| all.iter().find(|s| s.name == "coucou"))
+            .or_else(|| all.iter().find(|s| s.name == "roni"))
             .or(all.first())
             .cloned();
         if let Some(s) = pick {
@@ -221,7 +221,7 @@ impl Provider {
             }
             return Ok(s);
         }
-        let (made, made_code) = http.call(Method::POST, "/api/sessions", &[], Some(json!({"name": "coucou"})), Duration::from_secs(10)).await?;
+        let (made, made_code) = http.call(Method::POST, "/api/sessions", &[], Some(json!({"name": "roni"})), Duration::from_secs(10)).await?;
         Self::openwa_check(&made, made_code)?;
         let s = serde_json::from_slice::<Value>(&made)
             .ok()

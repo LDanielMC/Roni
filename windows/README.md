@@ -1,3 +1,7 @@
+> **Roni** is a fork of [Coucou](https://github.com/Louis-CFM/coucou) (MIT, © Louis Raille).
+> Everything below is the original project's documentation and still describes Coucou: it is
+> rewritten for Roni in Rebanada 6. For what Roni changed, see `roni-docs/` at the root of the repository.
+
 <div align="center">
 
 <img src="src-tauri/icons/128x128.png" width="96" alt="Coucou icon">

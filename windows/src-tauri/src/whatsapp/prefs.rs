@@ -75,7 +75,7 @@ pub fn load() -> Prefs {
 pub fn save(prefs: &Prefs) {
     let path = path();
     let Some(dir) = path.parent() else { return };
-    let temp = path.with_extension(format!("json.coucou-{}", std::process::id()));
+    let temp = path.with_extension(format!("json.roni-{}", std::process::id()));
     let written = crate::platform::ensure_private_dir(dir)
         .and_then(|()| serde_json::to_vec_pretty(prefs).map_err(std::io::Error::other))
         .and_then(|json| std::fs::write(&temp, json))

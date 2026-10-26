@@ -26,8 +26,8 @@ export const SHORTCUT_TEXT = {
   attachFrontWindow: N_("Attach the front window to the chat"),
   nextPill: N_("Next pill"),
   prevPill: N_("Previous pill"),
-  muteToggle: N_("Mute or unmute Mochi"),
-  desktopToggle: N_("Send Mochi to the desktop"),
+  muteToggle: N_("Mute or unmute Roni"),
+  desktopToggle: N_("Send Roni to the desktop"),
   wardrobeToggle: N_("Open the wardrobe"),
   island: {
     nextPrev: N_("Next or previous pill"),
@@ -71,16 +71,16 @@ const def = (id: ShortcutId, defaultKeys: string, enabledByDefault: boolean, por
 
 /** Same order and defaults as ACTIONS in src-tauri/src/shortcuts.rs. */
 export const SHORTCUTS: readonly ShortcutDef[] = [
-  def("toggleIsland", "Ctrl+Alt+N", false, true),
-  def("openChat", "Ctrl+Alt+Space", true, true),
-  def("goToAlert", "Ctrl+Alt+A", true, true),
-  def("jumpToTerminal", "Ctrl+Alt+T", true, true),
-  def("attachFrontWindow", "Ctrl+Alt+F", true, false),
-  def("nextPill", "Ctrl+Alt+Right", true, true),
-  def("prevPill", "Ctrl+Alt+Left", true, true),
-  def("muteToggle", "Ctrl+Alt+S", true, true),
-  def("desktopToggle", "Ctrl+Alt+D", true, true),
-  def("wardrobeToggle", "Ctrl+Alt+G", true, true),
+  def("toggleIsland", "Ctrl+Alt+Shift+N", false, true),
+  def("openChat", "Ctrl+Alt+Shift+Space", true, true),
+  def("goToAlert", "Ctrl+Alt+Shift+A", true, true),
+  def("jumpToTerminal", "Ctrl+Alt+Shift+T", true, true),
+  def("attachFrontWindow", "Ctrl+Alt+Shift+F", true, false),
+  def("nextPill", "Ctrl+Alt+Shift+Right", true, true),
+  def("prevPill", "Ctrl+Alt+Shift+Left", true, true),
+  def("muteToggle", "Ctrl+Alt+Shift+S", true, true),
+  def("desktopToggle", "Ctrl+Alt+Shift+D", true, true),
+  def("wardrobeToggle", "Ctrl+Alt+Shift+G", true, true),
 ];
 
 export interface Binding {

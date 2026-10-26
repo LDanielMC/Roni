@@ -1,4 +1,4 @@
-// « OK Coucou »: hearing the wake phrase in what Parakeet wrote, and telling
+// « OK Roni »: hearing the wake phrase in what Parakeet wrote, and telling
 // speech from silence on the microphone. Nothing here touches the OS.
 
 /// Lower case, accents gone, everything but letters and digits a space.
@@ -27,17 +27,16 @@ fn is_ok(word: &str) -> bool {
     matches!(word, "ok" | "okay" | "oke" | "okey" | "hey")
 }
 
-/// How Parakeet may write "coucou", in one word.
-fn is_coucou(word: &str) -> bool {
-    matches!(
-        word,
-        "coucou" | "coucous" | "cuckoo" | "cucu" | "kuku" | "koukou" | "cookoo" | "coocoo" | "cocou" | "kukuu" | "couscous"
-    )
+/// How Parakeet may write "Roni", in one word. Only Roni's name is heard, never the
+/// original app's ("coucou"): with Coucou installed beside Roni, one phrase must
+/// wake one of them. The phrase itself ("OK Roni") is redone in Rebanada 5 ("Oye Roni").
+fn is_wake_name(word: &str) -> bool {
+    matches!(word, "roni" | "ronny" | "ronnie" | "rony" | "ronni" | "roney")
 }
 
 /// …or in two.
-fn is_coucou_pair(a: &str, b: &str) -> bool {
-    matches!((a, b), ("cou", "cou") | ("coo", "coo") | ("ku", "ku") | ("cu", "cu") | ("koo", "koo") | ("cuck", "oo"))
+fn is_wake_name_pair(a: &str, b: &str) -> bool {
+    matches!((a, b), ("ro", "ni") | ("ro", "ny") | ("ro", "nee") | ("ron", "ny") | ("ron", "ni"))
 }
 
 /// When `text` holds the wake phrase, what was said after it (maybe nothing).
@@ -55,22 +54,22 @@ pub fn after_wake(text: &str) -> Option<String> {
             ok_end = Some(if norm[i] == "o" { i + 2 } else { i + 1 });
         }
         if let Some(j) = ok_end {
-            // A word made of two ("ok coucou" written as one token is rare but happens).
+            // A word made of two ("ok roni" written as one token is rare but happens).
             if let Some(w) = norm.get(j) {
                 let parts: Vec<&str> = w.split(' ').collect();
-                if parts.len() == 1 && is_coucou(parts[0]) {
+                if parts.len() == 1 && is_wake_name(parts[0]) {
                     return Some(words[j + 1..].join(" ").trim_start_matches([',', '.', '!', ' ']).trim().to_string());
                 }
                 if let Some(next) = norm.get(j + 1) {
-                    if is_coucou_pair(w, next) {
+                    if is_wake_name_pair(w, next) {
                         return Some(words[j + 2..].join(" ").trim_start_matches([',', '.', '!', ' ']).trim().to_string());
                     }
                 }
             }
         }
-        // "okcoucou" in one piece.
+        // "okroni" in one piece.
         if let Some(rest) = norm[i].strip_prefix("okay").or_else(|| norm[i].strip_prefix("ok")) {
-            if is_coucou(rest.trim()) {
+            if is_wake_name(rest.trim()) {
                 return Some(words[i + 1..].join(" ").trim().to_string());
             }
         }
@@ -195,13 +194,19 @@ mod tests {
 
     #[test]
     fn the_wake_phrase_however_parakeet_writes_it() {
-        assert_eq!(after_wake("OK Coucou, play some music.").as_deref(), Some("play some music."));
-        assert_eq!(after_wake("Okay, coucou! Quelle heure est-il ?").as_deref(), Some("Quelle heure est-il ?"));
-        assert_eq!(after_wake("O.K. Cuckoo what's the weather").as_deref(), Some("what's the weather"));
-        assert_eq!(after_wake("ok cou cou ajoute Stripe").as_deref(), Some("ajoute Stripe"));
-        assert_eq!(after_wake("OK Coucou.").as_deref(), Some(""));
-        assert_eq!(after_wake("Hey coucou, ça va ?").as_deref(), Some("ça va ?"));
-        assert_eq!(after_wake("on a dit coucou à Paul"), None);
+        assert_eq!(after_wake("OK Roni, play some music.").as_deref(), Some("play some music."));
+        assert_eq!(after_wake("Okay, Roni! Quelle heure est-il ?").as_deref(), Some("Quelle heure est-il ?"));
+        assert_eq!(after_wake("O.K. Ronnie what's the weather").as_deref(), Some("what's the weather"));
+        assert_eq!(after_wake("ok ro ni ajoute Stripe").as_deref(), Some("ajoute Stripe"));
+        assert_eq!(after_wake("OK Roni.").as_deref(), Some(""));
+        assert_eq!(after_wake("Hey Roni, ça va ?").as_deref(), Some("ça va ?"));
+        assert_eq!(after_wake("Hey Ronnie pon música").as_deref(), Some("pon música"));
+        assert_eq!(after_wake("on a dit Roni à Paul"), None);
+        // Coucou's own phrase must not wake Roni when both run on the same computer.
+        assert_eq!(after_wake("OK Coucou, play some music."), None);
+        assert_eq!(after_wake("O.K. Cuckoo what's the weather"), None);
+        assert_eq!(after_wake("ok cou cou ajoute Stripe"), None);
+        assert_eq!(after_wake("Hey coucou, ça va ?"), None);
         assert_eq!(after_wake("ok let's go"), None);
         assert_eq!(normalize("Ça VA, Élodie ?"), "ca va elodie");
     }

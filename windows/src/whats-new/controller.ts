@@ -26,7 +26,7 @@ export interface WhatsNewHost {
 }
 
 /** The last version this install saw. A convenience of this install, like the plan usage. */
-const LAST_KEY = "coucou.whatsNew.lastVersion";
+const LAST_KEY = "roni.whatsNew.lastVersion";
 
 /** After the greeting, so the two never meet; then every few seconds while the island is busy. */
 const FIRST_DELAY_MS = 3000;
@@ -147,10 +147,6 @@ class WhatsNewController {
 
   /** "All changes": the release page of this version on GitHub. */
   openReleasePage(url: string) {
-    void Bridge.openUrl(url);
-  }
-
-  openCoffee(url: string) {
     void Bridge.openUrl(url);
   }
 

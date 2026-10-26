@@ -9,12 +9,11 @@ import { NO_UPDATE } from "../src/core/update.ts";
 import { BotEngine } from "../src/mochi/engine.ts";
 import { WHATS_NEW_ICONS } from "../src/whats-new/icons.ts";
 import {
-  COFFEE_URL, ICON_NAMES, LATER_MS, compareVersions, decideOnLaunch, iconName, localized, releaseFor,
+  ICON_NAMES, LATER_MS, compareVersions, decideOnLaunch, iconName, localized, releaseFor,
   releasePage, showsUpdateHint, soFar, updateWaiting, usedBefore,
 } from "../src/whats-new/whats-new.ts";
 
 const FILE = JSON.parse(readFileSync(new URL("../src/whats-new/whats-new.json", import.meta.url), "utf8"));
-const PKG = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 test("versions compare as numbers", () => {
   assert.equal(compareVersions("0.10.0", "0.9.3"), 1);
@@ -34,10 +33,9 @@ test("the entry of exactly the running version", () => {
   assert.equal(releaseFor({}, "0.6.0"), null);
 });
 
-test("the version this app ships has its entry, in every language", () => {
-  const release = releaseFor(FILE, PKG.version);
-  assert.ok(release, `whats-new.json has no entry for ${PKG.version}`);
-  for (const item of release.items) {
+test("every entry the app ships is complete, in every language (Roni has none yet)", () => {
+  assert.ok(Array.isArray(FILE.releases));
+  for (const item of FILE.releases.flatMap((r) => r.items)) {
     assert.ok(ICON_NAMES.includes(item.icon), item.icon);
     for (const lang of ["en", "zh-Hans", "hi", "es", "ar", "fr", "bn", "pt-BR", "ru", "id", "de", "tr"]) {
       assert.ok(item.title[lang]?.trim(), `${item.icon} title ${lang}`);
@@ -81,7 +79,7 @@ test("signs of an earlier install", () => {
   assert.equal(usedBefore({ consent: null, history: empty, dictations: 0, notes: 1 }), true);
 });
 
-test("your Coucou so far: every kept number, zeros left out", () => {
+test("your Roni so far: every kept number, zeros left out", () => {
   const turn = (start, end, linesAdded) => ({
     agent: "claude-code", project: "p", start, end, filesChanged: 1, linesAdded, linesRemoved: 3, commandsRun: 0, questions: 0,
   });
@@ -117,7 +115,7 @@ const out = (version = "0.6.0") => ({
   latest: { version, headline: null, pageUrl: "https://github.com/Louis-CFM/coucou/releases/tag/windows-v0.6.0" },
 });
 
-test("Mochi is blue while a version waits", () => {
+test("Roni is blue while a version waits", () => {
   const now = 1_800_000_000_000;
   assert.equal(updateWaiting(out(), null, now), true);
   assert.equal(updateWaiting({ ...out(), consent: null }, null, now), false, "never before the user said yes");
@@ -132,7 +130,7 @@ test("Mochi is blue while a version waits", () => {
   assert.equal(updateWaiting(out(), { version: "0.6.0", at: now + 3600_000 }, now), true, "a clock that went back");
 });
 
-test("the engine wears the arrow badge only over an idle or sleeping Mochi", () => {
+test("the engine wears the arrow badge only over an idle or sleeping Roni", () => {
   const engine = new BotEngine();
   engine.setUpdateHint([0.231, 0.51, 0.965]);
   assert.equal(engine.showsUpdateHint, true);
@@ -144,7 +142,7 @@ test("the engine wears the arrow badge only over an idle or sleeping Mochi", () 
   assert.equal(engine.showsUpdateHint, false);
 });
 
-test("the blue only when Mochi has nothing else to say", () => {
+test("the blue only when Roni has nothing else to say", () => {
   assert.equal(showsUpdateHint(true, "idle", false), true);
   assert.equal(showsUpdateHint(true, "sleeping", false), true);
   assert.equal(showsUpdateHint(true, "working", false), false);
@@ -153,9 +151,7 @@ test("the blue only when Mochi has nothing else to say", () => {
   assert.equal(showsUpdateHint(false, "idle", false), false);
 });
 
-test("All changes and the coffee", () => {
-  assert.equal(releasePage("windows", "0.5.2"), "https://github.com/Louis-CFM/coucou/releases/tag/windows-v0.5.2");
-  assert.equal(releasePage("linux", "0.5.2"), "https://github.com/Louis-CFM/coucou/releases/tag/linux-v0.5.2");
-  const site = readFileSync(new URL("../../docs/index.html", import.meta.url), "utf8");
-  assert.ok(site.includes(COFFEE_URL), "the same link as the Coucou page");
+test("All changes: Roni has no release page yet", () => {
+  assert.equal(releasePage("windows", "0.5.2"), "");
+  assert.equal(releasePage("linux", "0.5.2"), "");
 });

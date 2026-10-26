@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rebrand, rebrandValue } from "./rebrand.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SOURCE = resolve(here, "../../NotchBuddy/Resources/Localizable.xcstrings");
@@ -101,7 +102,11 @@ export function generate(catalog) {
     if (LANGUAGES.some((lang) => lang !== "en" && out[lang] === undefined)) continue;
     // The English plural forms are needed to pick "one" in English too.
     if (typeof en !== "string") out.en = en;
-    strings[key] = out;
+    // Roni: the Mac's "Coucou" and "Mochi" become "Roni" (scripts/rebrand.mjs), in the key
+    // and in every language. The code writes the same English text.
+    const rebranded = rebrand(key);
+    const rebrandedOut = rebrandValue(out);
+    strings[rebranded] = rebrandedOut;
   }
   const sorted = Object.fromEntries(Object.entries(strings).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
   return {

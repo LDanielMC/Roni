@@ -45,7 +45,7 @@ pub fn host_label(name: &str) -> String {
         .take(63)
         .collect();
     if label.is_empty() {
-        label = "coucou".to_string();
+        label = "roni".to_string();
     }
     label
 }
@@ -63,7 +63,7 @@ pub fn advert(name: &str, port: u16, fingerprint: &str) -> Option<Advert> {
     let instance: String = name.trim().chars().take(48).collect();
     let instance = instance.trim().to_string();
     Some(Advert {
-        instance: if instance.is_empty() { "Coucou".to_string() } else { instance },
+        instance: if instance.is_empty() { "Roni".to_string() } else { instance },
         host: format!("{}.local.", host_label(name)),
         port,
         txt: txt(fingerprint)?,
@@ -221,9 +221,9 @@ pub mod tests {
         assert_eq!(ad.instance, "Rhytam's PC");
         assert_eq!(ad.host, "Rhytam-s-PC.local.");
         assert_eq!(ad.port, 47821);
-        assert_eq!(host_label("***"), "coucou");
+        assert_eq!(host_label("***"), "roni");
         assert_eq!(host_label(&"a".repeat(100)).len(), 63);
-        assert_eq!(advert("   ", 1, FP).unwrap().instance, "Coucou");
+        assert_eq!(advert("   ", 1, FP).unwrap().instance, "Roni");
     }
 
     #[test]

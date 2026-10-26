@@ -1,11 +1,16 @@
 // "Coucou 0.6.0 is out" in the island, and on Windows one click to install it.
 // Port of MacUpdate.swift / MacUpdater.swift (the Mac's GitHub build).
 //
+// RONI: THE UPDATER IS OFF (`UPDATES_ENABLED = false` below, and the release
+// addresses are empty). Nothing in this file runs until Rebanada 6 decides where
+// Roni publishes its own releases; it must never reach the original Coucou project.
+// What follows describes how the original works once turned on.
+//
 // Nothing is asked of GitHub before the user says yes: the island asks once
 // (again a day later at most if the card was left unanswered), or Settings →
 // General → Updates. "Check now" is a click, so it works either way. Once
 // allowed, Coucou looks at launch and every 6 hours: one unauthenticated
-// `GET /repos/Louis-CFM/coucou/releases`, no cookies, nothing about the user.
+// `GET /repos/<owner>/<repo>/releases`, no cookies, nothing about the user.
 //
 // Windows: the installer this copy came from — the per-user setup.exe in
 // %LOCALAPPDATA%\Coucou, the per-machine .msi under Program Files — is
@@ -29,9 +34,15 @@ use tauri::{AppHandle, Emitter};
 use crate::i18n::t;
 use crate::island::WINDOW_LABEL;
 
-pub const RELEASES_URL: &str = "https://api.github.com/repos/Louis-CFM/coucou/releases?per_page=30";
+/// Roni does not update itself yet (Rebanada 6 decides where its releases live).
+/// Until then nothing here runs: no schedule, no call out, no download, and the
+/// addresses below are empty so that even turning this on by mistake can never
+/// reach the original Coucou project's releases.
+pub const UPDATES_ENABLED: bool = false;
+
+pub const RELEASES_URL: &str = "";
 /// Where "What's new" goes when no release is known.
-pub const RELEASES_PAGE: &str = "https://github.com/Louis-CFM/coucou/releases";
+pub const RELEASES_PAGE: &str = "";
 
 /// This platform's release tags: `windows-vX.Y.Z` / `linux-vX.Y.Z`. Never the
 /// rolling `windows-latest` / `linux-latest`, nor the Mac's `v…` or Android's.
@@ -212,11 +223,11 @@ pub fn install_kind(exe: &str, has_uninstaller: bool, local_app_data: Option<&st
     let exe = win_path(exe);
     let Some((dir, _)) = exe.rsplit_once('\\') else { return InstallKind::Manual };
     if let Some(local) = local_app_data.filter(|l| !l.trim().is_empty()) {
-        if dir == format!("{}\\coucou", win_path(local)) {
+        if dir == format!("{}\\roni", win_path(local)) {
             return if has_uninstaller { InstallKind::Setup } else { InstallKind::Manual };
         }
     }
-    if program_files.iter().filter(|p| !p.trim().is_empty()).any(|p| dir == format!("{}\\coucou", win_path(p))) {
+    if program_files.iter().filter(|p| !p.trim().is_empty()).any(|p| dir == format!("{}\\roni", win_path(p))) {
         return InstallKind::Msi;
     }
     InstallKind::Manual
@@ -226,8 +237,8 @@ pub fn install_kind(exe: &str, has_uninstaller: bool, local_app_data: Option<&st
 /// workflow publishes, nothing else.
 pub fn asset_name(kind: InstallKind, version: &str) -> Option<String> {
     match kind {
-        InstallKind::Setup => Some(format!("Coucou-Windows-{version}-setup.exe")),
-        InstallKind::Msi => Some(format!("Coucou-Windows-{version}.msi")),
+        InstallKind::Setup => Some(format!("Roni-Windows-{version}-setup.exe")),
+        InstallKind::Msi => Some(format!("Roni-Windows-{version}.msi")),
         InstallKind::Manual => None,
     }
 }
@@ -378,7 +389,7 @@ fn load_prefs() -> Prefs {
 fn save_prefs(prefs: &Prefs) {
     let path = prefs_path();
     let Some(dir) = path.parent() else { return };
-    let temp = path.with_extension(format!("json.coucou-{}", std::process::id()));
+    let temp = path.with_extension(format!("json.roni-{}", std::process::id()));
     let written = crate::platform::ensure_private_dir(dir)
         .and_then(|()| serde_json::to_vec(prefs).map_err(std::io::Error::other))
         .and_then(|json| std::fs::write(&temp, json))
@@ -454,6 +465,9 @@ fn set_phase(app: &AppHandle, phase: Phase) {
 /// At launch: a first look 30 s in, then every hour (GitHub only every 6 h).
 /// The task sleeps in between: nothing runs while nothing is due.
 pub fn start(app: AppHandle) {
+    if !UPDATES_ENABLED {
+        return;
+    }
     remove_old_downloads();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(FIRST_TICK).await;
@@ -514,7 +528,7 @@ fn github_client(timeout: Duration) -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(timeout)
-        .user_agent("Coucou")
+        .user_agent("Roni")
         .redirect(policy)
         .build()
         .map_err(|e| e.to_string())
@@ -537,6 +551,9 @@ async fn fetch_latest() -> Result<Option<Release>, String> {
 /// One look at GitHub. `manual`: "Check now" in Settings, which opens the card
 /// when a new version is out.
 pub async fn check(app: &AppHandle, manual: bool) {
+    if !UPDATES_ENABLED {
+        return;
+    }
     {
         let mut s = state();
         if s.busy() || s.check == CheckState::Checking {
@@ -591,7 +608,7 @@ pub async fn check(app: &AppHandle, manual: bool) {
 fn remove_old_downloads() {
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
     for entry in entries.flatten() {
-        if entry.file_name().to_string_lossy().starts_with("coucou-update-") {
+        if entry.file_name().to_string_lossy().starts_with("roni-update-") {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
@@ -599,6 +616,9 @@ fn remove_old_downloads() {
 
 /// "Update now": downloads, checks and runs the installer, then quits.
 pub fn install(app: &AppHandle) {
+    if !UPDATES_ENABLED {
+        return;
+    }
     let kind = this_install();
     let release = {
         let mut s = state();
@@ -643,7 +663,7 @@ async fn run(app: &AppHandle, release: &Release, kind: InstallKind) -> Result<()
         return Err(t("The download isn't the file GitHub published for this version, so nothing was installed."));
     }
     let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("coucou-update-{}-{nonce}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("roni-update-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|_| t("The download failed. Try again, or get the new version on GitHub."))?;
     let path = dir.join(&asset.name);
 
@@ -796,6 +816,9 @@ pub fn update_install(app: AppHandle) {
 /// "What's new" / "Get it on GitHub": the release's page (only ever a github.com address).
 #[tauri::command]
 pub fn update_open_page() {
+    if !UPDATES_ENABLED || RELEASES_PAGE.is_empty() {
+        return;
+    }
     let page = state().latest.as_ref().map(|r| r.page_url.clone()).filter(|u| allowed_url(u));
     crate::platform::open_url(page.as_deref().unwrap_or(RELEASES_PAGE));
 }
@@ -816,27 +839,27 @@ mod tests {
             { "tag_name": "v0.9.0", "draft": false, "prerelease": false,
               "html_url": "https://github.com/Louis-CFM/coucou/releases/tag/v0.9.0",
               "body": "## What's new\n\n- **WhatsApp in one click** — Mac",
-              "assets": [{ "name": "Coucou.zip", "size": 34228988,
+              "assets": [{ "name": "Roni.zip", "size": 34228988,
                 "browser_download_url": "https://github.com/Louis-CFM/coucou/releases/download/v0.9.0/Coucou.zip",
                 "digest": "sha256:24175a765704082c8b2e751f8b5ccb76b1eb3440ff2fd1e9c4cbe780c2193baa" }] },
             { "tag_name": "windows-v0.5.0", "draft": false, "prerelease": false,
               "html_url": "https://github.com/Louis-CFM/coucou/releases/tag/windows-v0.5.0",
-              "body": "Coucou for Windows 0.5.0 — Mochi at the top of your screen.\n\n## What's new\n\n- **Flow dictation** on Windows — hold right Ctrl\n- Other things",
+              "body": "Roni for Windows 0.5.0 — Roni at the top of your screen.\n\n## What's new\n\n- **Flow dictation** on Windows — hold right Ctrl\n- Other things",
               "assets": [
-                { "name": "Coucou-Windows-0.5.0-setup.exe", "size": 10950620,
+                { "name": "Roni-Windows-0.5.0-setup.exe", "size": 10950620,
                   "browser_download_url": "https://github.com/Louis-CFM/coucou/releases/download/windows-v0.5.0/Coucou-Windows-0.5.0-setup.exe",
                   "digest": "sha256:e8234a092e8fe1bf6eed0395e6db13052be8fe47413949c2b7fa368467342337" },
-                { "name": "Coucou-Windows-0.5.0.msi", "size": 14086144,
+                { "name": "Roni-Windows-0.5.0.msi", "size": 14086144,
                   "browser_download_url": "https://github.com/Louis-CFM/coucou/releases/download/windows-v0.5.0/Coucou-Windows-0.5.0.msi",
                   "digest": "sha256:79bced83c414722e84d47e99005a37910147624dc5e4edf55aa66ff6462cd09f" }] },
             { "tag_name": "windows-latest", "draft": false, "prerelease": false,
               "html_url": "https://github.com/Louis-CFM/coucou/releases/tag/windows-latest",
-              "assets": [{ "name": "Coucou-Windows-setup.exe", "size": 10950620,
+              "assets": [{ "name": "Roni-Windows-setup.exe", "size": 10950620,
                 "browser_download_url": "https://github.com/Louis-CFM/coucou/releases/download/windows-latest/Coucou-Windows-setup.exe",
                 "digest": "sha256:e8234a092e8fe1bf6eed0395e6db13052be8fe47413949c2b7fa368467342337" }] },
             { "tag_name": "linux-v0.5.0", "draft": false, "prerelease": false,
-              "html_url": "https://github.com/Louis-CFM/coucou/releases/tag/linux-v0.5.0", "body": "Coucou for Linux 0.5.0",
-              "assets": [{ "name": "Coucou-Linux-0.5.0-x86_64.AppImage", "size": 107960824,
+              "html_url": "https://github.com/Louis-CFM/coucou/releases/tag/linux-v0.5.0", "body": "Roni for Linux 0.5.0",
+              "assets": [{ "name": "Roni-Linux-0.5.0-x86_64.AppImage", "size": 107960824,
                 "browser_download_url": "https://github.com/Louis-CFM/coucou/releases/download/linux-v0.5.0/Coucou-Linux-0.5.0-x86_64.AppImage",
                 "digest": "sha256:b59e0a8e432b782ea029cc825d37675033e7ff4069d70d376c1d268495a242af" }] },
             { "tag_name": "linux-latest", "draft": false, "prerelease": false,
@@ -926,33 +949,33 @@ mod tests {
         let local = Some(r"C:\Users\Ana\AppData\Local");
         let pf = vec![r"C:\Program Files".to_string(), r"C:\Program Files (x86)".to_string()];
         let kind = |exe: &str, uninst: bool| install_kind(exe, uninst, local, &pf);
-        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Coucou\coucou.exe", true), InstallKind::Setup);
-        assert_eq!(kind(r"c:\users\ana\appdata\local\COUCOU\Coucou.exe", true), InstallKind::Setup);
+        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Roni\roni.exe", true), InstallKind::Setup);
+        assert_eq!(kind(r"c:\users\ana\appdata\local\RONI\Roni.exe", true), InstallKind::Setup);
         // A portable exe copied there: no NSIS uninstaller next to it.
-        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Coucou\coucou.exe", false), InstallKind::Manual);
-        assert_eq!(kind(r"C:\Program Files\Coucou\coucou.exe", false), InstallKind::Msi);
-        assert_eq!(kind(r"C:\Program Files (x86)\Coucou\coucou.exe", false), InstallKind::Msi);
+        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Roni\roni.exe", false), InstallKind::Manual);
+        assert_eq!(kind(r"C:\Program Files\Roni\roni.exe", false), InstallKind::Msi);
+        assert_eq!(kind(r"C:\Program Files (x86)\Roni\roni.exe", false), InstallKind::Msi);
         // The portable exe, a build, a folder that only looks alike.
-        assert_eq!(kind(r"C:\Users\Ana\Downloads\coucou.exe", true), InstallKind::Manual);
-        assert_eq!(kind(r"C:\dev\coucou\windows\target\release\coucou.exe", false), InstallKind::Manual);
-        assert_eq!(kind(r"C:\Program Files\Coucou\bin\coucou.exe", false), InstallKind::Manual);
-        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Coucou\bin\coucou-hook.exe", true), InstallKind::Manual);
-        assert_eq!(kind("coucou.exe", true), InstallKind::Manual);
-        assert_eq!(install_kind(r"C:\Program Files\Coucou\coucou.exe", false, None, &[]), InstallKind::Manual);
-        assert_eq!(install_kind("/opt/Coucou/coucou", false, Some(""), &[String::new()]), InstallKind::Manual);
+        assert_eq!(kind(r"C:\Users\Ana\Downloads\roni.exe", true), InstallKind::Manual);
+        assert_eq!(kind(r"C:\dev\roni\windows\target\release\roni.exe", false), InstallKind::Manual);
+        assert_eq!(kind(r"C:\Program Files\Roni\bin\roni.exe", false), InstallKind::Manual);
+        assert_eq!(kind(r"C:\Users\Ana\AppData\Local\Roni\bin\roni-hook.exe", true), InstallKind::Manual);
+        assert_eq!(kind("roni.exe", true), InstallKind::Manual);
+        assert_eq!(install_kind(r"C:\Program Files\Roni\roni.exe", false, None, &[]), InstallKind::Manual);
+        assert_eq!(install_kind("/opt/Roni/roni", false, Some(""), &[String::new()]), InstallKind::Manual);
     }
 
     #[test]
     fn the_asset_is_the_exact_installer_for_the_kind() {
         let w = latest(&fixture(), "windows-v").unwrap();
-        assert_eq!(pick_asset(&w, InstallKind::Setup).unwrap().name, "Coucou-Windows-0.5.0-setup.exe");
-        assert_eq!(pick_asset(&w, InstallKind::Msi).unwrap().name, "Coucou-Windows-0.5.0.msi");
+        assert_eq!(pick_asset(&w, InstallKind::Setup).unwrap().name, "Roni-Windows-0.5.0-setup.exe");
+        assert_eq!(pick_asset(&w, InstallKind::Msi).unwrap().name, "Roni-Windows-0.5.0.msi");
         assert_eq!(pick_asset(&w, InstallKind::Manual), None);
         // A look-alike name, or one served from elsewhere, is never picked.
         let mut odd = w.clone();
         odd.assets = vec![
-            Asset { name: "Coucou-Windows-setup.exe".into(), url: w.assets[0].url.clone(), size: 1, digest: None },
-            Asset { name: "Coucou-Windows-0.5.0.msi".into(), url: "https://evil.example.com/x.msi".into(), size: 1, digest: None },
+            Asset { name: "Roni-Windows-setup.exe".into(), url: w.assets[0].url.clone(), size: 1, digest: None },
+            Asset { name: "Roni-Windows-0.5.0.msi".into(), url: "https://evil.example.com/x.msi".into(), size: 1, digest: None },
         ];
         assert_eq!(pick_asset(&odd, InstallKind::Setup), None);
         assert_eq!(pick_asset(&odd, InstallKind::Msi), None);
@@ -972,14 +995,14 @@ mod tests {
 
     #[test]
     fn installers_run_with_tauris_update_flags() {
-        let file = Path::new(r"C:\Temp\coucou-update-1\Coucou-Windows-0.6.0-setup.exe");
+        let file = Path::new(r"C:\Temp\roni-update-1\Roni-Windows-0.6.0-setup.exe");
         let (program, args) = installer_command(InstallKind::Setup, file, Some(r"C:\Windows")).unwrap();
         assert_eq!(program, file);
         assert_eq!(args, ["/P", "/UPDATE", "/R"]);
-        let msi = Path::new(r"C:\Temp\coucou-update-1\Coucou-Windows-0.6.0.msi");
+        let msi = Path::new(r"C:\Temp\roni-update-1\Roni-Windows-0.6.0.msi");
         let (program, args) = installer_command(InstallKind::Msi, msi, Some(r"C:\Windows\")).unwrap();
         assert_eq!(program, PathBuf::from(r"C:\Windows\System32\msiexec.exe"));
-        assert_eq!(args, ["/i", r"C:\Temp\coucou-update-1\Coucou-Windows-0.6.0.msi", "/passive", "AUTOLAUNCHAPP=True"]);
+        assert_eq!(args, ["/i", r"C:\Temp\roni-update-1\Roni-Windows-0.6.0.msi", "/passive", "AUTOLAUNCHAPP=True"]);
         assert_eq!(installer_command(InstallKind::Msi, msi, None).unwrap().0, PathBuf::from("msiexec.exe"));
         assert_eq!(installer_command(InstallKind::Manual, file, None), None);
     }

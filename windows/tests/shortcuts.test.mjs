@@ -82,8 +82,8 @@ test("only the island toggle is off by default; the one not ported yet is reserv
     "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "desktopToggle",
     "wardrobeToggle",
   ]);
-  // The Mac's ⌃⌥D, on the same letter.
-  assert.equal(SHORTCUTS.find((d) => d.id === "desktopToggle").defaultKeys, "Ctrl+Alt+D");
+  // The Mac's ⌃⌥D, on the same letter (Roni adds Shift so Coucou can run beside it).
+  assert.equal(SHORTCUTS.find((d) => d.id === "desktopToggle").defaultKeys, "Ctrl+Alt+Shift+D");
 });
 
 // ── Parsing and formatting (testCarbonModifiers, testDisplayString, testKeyCodeToString) ──
@@ -146,7 +146,7 @@ test("a stored binding wins, the rest keep their default, and off ones hold no k
   };
   const chat = SHORTCUTS.find((d) => d.id === "openChat");
   assert.deepEqual(effective(chat, stored), { keys: "Ctrl+Alt+K", enabled: true });
-  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Space", enabled: true });
+  assert.deepEqual(effective(chat, undefined), { keys: "Ctrl+Alt+Shift+Space", enabled: true });
   const ids = activeKeys(stored).map(([id]) => id);
   assert.ok(ids.includes("toggleIsland"));
   assert.ok(!ids.includes("goToAlert"));
@@ -360,7 +360,7 @@ test("the island toggle opens with the keyboard, and closes an open island", () 
   assert.deepEqual(did, ["collapse"]);
 });
 
-test("go to alert: the permission first, then a question, else Mochi is annoyed", () => {
+test("go to alert: the permission first, then a question, else Roni is annoyed", () => {
   runGlobalShortcut(host, "goToAlert", resume);
   assert.deepEqual(did, ["emote:annoyed"]);
 
@@ -436,7 +436,7 @@ test("next and previous pill wrap around and open the overview", () => {
   assert.deepEqual(did, ["resume", "alert:overview", "resume", "alert:overview"]);
 });
 
-test("mute flips the sound, saves it, and Mochi reacts", () => {
+test("mute flips the sound, saves it, and Roni reacts", () => {
   runGlobalShortcut(host, "muteToggle", resume);
   assert.equal(State.settings.soundEnabled, false);
   assert.equal(sent("save_settings").at(-1).settings.soundEnabled, false);
@@ -445,7 +445,7 @@ test("mute flips the sound, saves it, and Mochi reacts", () => {
   assert.deepEqual(did, ["emote:annoyed", "emote:happy"]);
 });
 
-test("the desktop shortcut sends Mochi out, lifting Pause, and brings him home", () => {
+test("the desktop shortcut sends Roni out, lifting Pause, and brings him home", () => {
   runGlobalShortcut(host, "desktopToggle", resume);
   assert.deepEqual(did, ["resume", "desktop"]);
   // Out there already: home, and Pause stays as it is.
@@ -456,7 +456,7 @@ test("the desktop shortcut sends Mochi out, lifting Pause, and brings him home",
   assert.deepEqual(calls, []);
 });
 
-test("where Mochi can't leave the island (GNOME on Wayland), he says so", () => {
+test("where Roni can't leave the island (GNOME on Wayland), he says so", () => {
   desktopSupported = false;
   runGlobalShortcut(host, "desktopToggle", resume);
   assert.deepEqual(did, ["emote:annoyed"]);
@@ -466,7 +466,7 @@ test("the desktop shortcut arrives like the others, and runs from the command li
   emit("shortcut", "desktopToggle");
   assert.deepEqual(did, ["resume", "desktop"]);
   const rust = readFileSync(new URL("../src-tauri/src/shortcuts.rs", import.meta.url), "utf8");
-  assert.match(rust, /from_args\(&args\(&\["coucou", "--shortcut", "desktopToggle"\]\)\), Some\("desktopToggle"\)/);
+  assert.match(rust, /from_args\(&args\(&\["roni", "--shortcut", "desktopToggle"\]\)\), Some\("desktopToggle"\)/);
 });
 
 test("actions that aren't the island's do nothing here", () => {

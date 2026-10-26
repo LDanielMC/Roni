@@ -681,13 +681,13 @@ mod tests {
 
     #[test]
     fn rest_answers() {
-        let devices = r#"{"code":"SUCCESS","results":[{"id":"coucou","state":"disconnected"},{"id":"my-device-id","state":"logged_in","jid":"628123456789@s.whatsapp.net"}]}"#;
+        let devices = r#"{"code":"SUCCESS","results":[{"id":"roni","state":"disconnected"},{"id":"my-device-id","state":"logged_in","jid":"628123456789@s.whatsapp.net"}]}"#;
         assert_eq!(gowa::device(devices.as_bytes()),
             Some(("my-device-id".into(), Status { link: Link::Connected, me: Some("628123456789@s.whatsapp.net".into()) })));
-        let fresh = r#"{"code":"SUCCESS","results":[{"id":"coucou","state":"disconnected"}]}"#;
+        let fresh = r#"{"code":"SUCCESS","results":[{"id":"roni","state":"disconnected"}]}"#;
         assert_eq!(gowa::device(fresh.as_bytes()).unwrap().1.link, Link::NeedsQr);
         assert_eq!(gowa::device(br#"{"code":"SUCCESS","results":[]}"#), None);
-        let login = r#"{"code":"SUCCESS","results":{"device_id":"coucou","qr_duration":30,"qr_link":"http://localhost:3000/statics/qrcode/scan-qr-b0b7.png"}}"#;
+        let login = r#"{"code":"SUCCESS","results":{"device_id":"roni","qr_duration":30,"qr_link":"http://localhost:3000/statics/qrcode/scan-qr-b0b7.png"}}"#;
         assert_eq!(gowa::qr_path(login.as_bytes()), Some(("/statics/qrcode/scan-qr-b0b7.png".into(), 30)));
         assert_eq!(gowa::launch_arguments(3001), ["rest", "--host=127.0.0.1", "--port=3001", "--auto-download-media=false"]);
         assert_eq!(gowa::error_code(br#"{"code":"ALREADY_LOGGED_IN","message":"x"}"#).as_deref(), Some("ALREADY_LOGGED_IN"));
@@ -700,7 +700,7 @@ mod tests {
         let chats = r#"{"code":"SUCCESS","results":{"data":[{"jid":"628123456789@s.whatsapp.net","name":"John","last_message_time":"2025-07-13T11:06:00Z"}]}}"#;
         assert_eq!(gowa::chats(chats.as_bytes())[0].1, "John");
 
-        let session = r#"[{"id":"0b5d","name":"coucou","status":"ready","phone":"628123456789"}]"#;
+        let session = r#"[{"id":"0b5d","name":"roni","status":"ready","phone":"628123456789"}]"#;
         let s = &openwa::sessions(session.as_bytes())[0];
         assert_eq!(openwa::status(s), Status { link: Link::Connected, me: Some("628123456789".into()) });
         assert!(openwa::needs_start("created") && !openwa::needs_start("qr_ready"));

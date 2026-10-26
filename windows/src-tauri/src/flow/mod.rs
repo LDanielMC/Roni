@@ -96,7 +96,7 @@ pub fn is_shell(id: &str) -> bool {
     matches!(
         id,
         "explorer" | "applicationframehost" | "textinputhost" | "shellexperiencehost" | "searchhost"
-            | "startmenuexperiencehost" | "lockapp" | "coucou" | "gnome-shell" | "plasmashell" | "xfdesktop"
+            | "startmenuexperiencehost" | "lockapp" | "roni" | "gnome-shell" | "plasmashell" | "xfdesktop"
     )
 }
 
@@ -164,7 +164,7 @@ fn enable(app: &AppHandle, flow: &Arc<Flow>) {
     let app2 = app.clone();
     let flow2 = flow.clone();
     std::thread::Builder::new()
-        .name("coucou-flow".into())
+        .name("roni-flow".into())
         .spawn(move || run(app2, flow2, rx))
         .ok();
     *running = Some(Running { tx, _listener: listener });
@@ -301,7 +301,7 @@ fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
             app,
             "download",
             "#3B9EFF",
-            t("Download the voice model first, in Coucou → Settings → Recognition."),
+            t("Download the voice model first, in Roni → Settings → Recognition."),
             Some((t("Open Settings"), "openSettings")),
             10,
         );
@@ -334,7 +334,7 @@ fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
                 app,
                 "mic",
                 "#FF6B6B",
-                t("Coucou can't hear you: the microphone is not allowed or not available."),
+                t("Roni can't hear you: the microphone is not allowed or not available."),
                 None,
                 8,
             );

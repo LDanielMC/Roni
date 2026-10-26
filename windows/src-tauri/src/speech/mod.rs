@@ -5,7 +5,7 @@
 // Nothing is downloaded until the user clicks Download in Coucou → Settings.
 // The files come from Hugging Face at a pinned revision, are checked against
 // their SHA-256 and kept in %LOCALAPPDATA%\Coucou\Models (Windows) or
-// ~/.local/share/coucou/Models (Linux). From then on everything runs offline.
+// ~/.local/share/roni/Models (Linux). From then on everything runs offline.
 
 pub mod audio;
 
@@ -206,7 +206,7 @@ async fn download_all(app: &AppHandle) -> Result<(), String> {
     let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(20))
         .read_timeout(Duration::from_secs(60))
-        .user_agent(concat!("Coucou/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("Roni/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| e.to_string())?;
     let mut last_emit = Instant::now();

@@ -961,7 +961,7 @@ async fn send(chat: &str, text: &str) -> bool {
         c.sending = false;
         match result {
             Ok(id) => {
-                let id = id.unwrap_or_else(|| format!("coucou-{}-{}", gateway::now_ms(), c.inbox.conversations.len()));
+                let id = id.unwrap_or_else(|| format!("roni-{}-{}", gateway::now_ms(), c.inbox.conversations.len()));
                 let mut mine = Message::new(&id, &key, me.as_deref().unwrap_or(""), &body, gateway::now_ms());
                 mine.from_me = true;
                 mine.chat_name = c.inbox.conversations.get(&key).map(|conv| conv.name.clone());
