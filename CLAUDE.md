@@ -1,4 +1,35 @@
-# Coucou — guide for AI coding agents
+# Roni (fork de Coucou) — guía para agentes de código
+
+App de escritorio para Windows donde vive **Roni**, el asistente personal de Dani. Es un fork de Coucou (licencia MIT).
+Antes de cualquier tarea, lee `roni-docs/contexto.md`, `roni-docs/decisiones.md`, `roni-docs/plan-de-rebanadas.md`,
+`roni-docs/criterios.md` y, si toca el personaje, `roni-docs/diseno/personaje.md`. Si existe, `roni-docs/mapa-coucou.md`
+explica dónde está cada pieza del código heredado.
+
+## Flujo de trabajo obligatorio (Roni)
+1. Antes de empezar una tarea, lee los documentos de roni-docs/.
+2. Crea una rama nueva por tarea. Nunca hagas commit directo en main/master ni push sin que Dani lo pida.
+3. Al terminar cada tarea, pásale el trabajo al subagente "revisor" (`.claude/agents/revisor.md`).
+4. Si responde CORRECCIONES, aplícalas y vuelve a pedir revisión. Máximo 3 rondas; si no aprueba, detente y explica el desacuerdo.
+5. Detente y pregunta ANTES de: instalar herramientas o librerías, cambiar la configuración de OpenClaw,
+   tocar el token del gateway, modificar ~/.claude/settings.json o salirte del plan de rebanadas.
+6. Antes de dar una tarea por terminada, compila la app y corre las pruebas que existan.
+7. Al final da un resumen corto en español sencillo: qué hiciste, qué corrigió el revisor y qué debe probar Dani,
+   con los comandos de PowerShell completos.
+8. Si se toma una decisión importante, agrégala a roni-docs/decisiones.md.
+
+## Cómo conviven las dos guías
+- Roni trabaja sobre `windows/` (Tauri). `NotchBuddy/` (Mac), `android/`, `relay/` y `linux/` se dejan como están.
+- Las reglas técnicas de abajo vienen de Coucou y siguen vigentes (Keychain/credenciales, sin telemetría, el hook nunca
+  bloquea a Claude Code, no sobrescribir `~/.claude/settings.json`, no aprobar permisos sin un clic).
+- Donde la guía de Coucou y `roni-docs/` se contradigan, manda `roni-docs/`. Casos conocidos: la regla "Never restyle what
+  already ships" y "Keep the bundle identifier `fr.louisraille.NotchBuddy`" son del Coucou original; Roni sí cambia
+  nombre, identificador, ícono, sonidos y personaje (Rebanadas 1 y 2), y solo en `windows/`.
+- Las reglas de release (CHANGELOG, tabla de versiones del README, what's new) son del Coucou original; en Roni se
+  decidirán cuando haya primera versión propia (Rebanada 6). Hasta entonces no aplican.
+
+---
+
+# Coucou — guide for AI coding agents (guía técnica heredada)
 
 Coucou is a native macOS app (`NotchBuddy/`); `windows/` is the Tauri version for Windows and Linux. Mochi, a small animated character living in the MacBook notch, shows AI coding agent sessions (Claude Code, Gemini CLI, Antigravity and more) and a few integrations, and lets the user approve, answer, chat and drop files from the notch.
 
