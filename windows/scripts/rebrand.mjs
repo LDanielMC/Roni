@@ -26,8 +26,8 @@ export function rebrand(text) {
     });
   }
   s = s
-    .replace(/fr\.louisraille\.Coucou\.Focus/g, "dev.roni.desktop.Focus")
-    .replace(/fr\.louisraille\.coucou/g, "dev.roni.desktop")
+    .replace(/fr\.louisraille\.Coucou\.Focus/g, "com.ldanielmc.roni.Focus")
+    .replace(/fr\.louisraille\.coucou/g, "com.ldanielmc.roni")
     .replace(/Coucou/g, "Roni")
     .replace(/coucou/g, "roni")
     .replace(/\bMochi\b/g, "Roni")

@@ -220,7 +220,7 @@ Este mapa se escribió antes de renombrar: donde diga `coucou`, `Coucou` o `couc
 | Datos locales (hook, modelos, registro) | `%LOCALAPPDATA%\Coucou` | `%LOCALAPPDATA%\Roni` |
 | Hook | `coucou-hook.exe` | `roni-hook.exe` |
 | Named pipe | `\\.\pipe\coucou-<SID>` | `\\.\pipe\roni-<SID>` |
-| Identificador / servicio de credenciales | `fr.louisraille.coucou` | `dev.roni.desktop` |
+| Identificador / servicio de credenciales | `fr.louisraille.coucou` | `com.ldanielmc.roni` |
 | Marca en `settings.json` de Claude Code | `coucou-hook` | `roni-hook` |
 | Ejecutable | `coucou.exe` | `roni.exe` |
 | Atajos globales | `Ctrl+Alt+…` | `Ctrl+Alt+Shift+…` |

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Roni",
-  "version": "0.5.3",
-  "identifier": "dev.roni.desktop",
+  "version": "0.1.0",
+  "identifier": "com.ldanielmc.roni",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",

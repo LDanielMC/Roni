@@ -3793,7 +3793,7 @@ dependencies = [
 
 [[package]]
 name = "roni"
-version = "0.5.3"
+version = "0.1.0"
 dependencies = [
  "arboard",
  "cpal",
@@ -3829,7 +3829,7 @@ dependencies = [
 
 [[package]]
 name = "roni-hook"
-version = "0.5.3"
+version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",

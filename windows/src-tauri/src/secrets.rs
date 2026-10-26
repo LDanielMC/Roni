@@ -3,7 +3,7 @@
 
 use keyring::Entry;
 
-const SERVICE: &str = "dev.roni.desktop";
+const SERVICE: &str = "com.ldanielmc.roni";
 
 /// Every key Coucou may store. Anything outside this list is refused.
 pub const KNOWN_KEYS: &[&str] = &[
@@ -136,7 +136,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn a_certificate_sized_secret_round_trips_through_credential_manager() {
-        let entry = keyring::Entry::new("dev.roni.desktop.test", "phone-link-size-check").unwrap();
+        let entry = keyring::Entry::new("com.ldanielmc.roni.test", "phone-link-size-check").unwrap();
         let big: String = (0..1_200).map(|i| char::from(b"0123456789abcdef"[i % 16])).collect();
         entry.set_password(&big).expect("Credential Manager refused a certificate-sized secret");
         let back = entry.get_password().expect("could not read it back");

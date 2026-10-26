@@ -17,10 +17,10 @@
 - **Las reglas de release de Coucou (CHANGELOG, tabla de versiones, what's new) no aplican a Roni hasta la Rebanada 6**
   (ver `CLAUDE.md`, "Cómo conviven las dos guías"). Confirmado por Dani.
 - **El subagente `revisor` se versiona en git** (`.claude/agents/`); el resto de `.claude/` sigue ignorado (`.gitignore`). `CLAUDE.roni.md` se borró: su contenido está en `CLAUDE.md`.
-- **Identidad de Roni en Windows (Rebanada 1):** nombre `Roni`; identificador de la app `dev.roni.desktop` (no puede terminar en `.app`,
+- **Identidad de Roni en Windows (Rebanada 1):** nombre `Roni`; identificador de la app `com.ldanielmc.roni` (no puede terminar en `.app`,
   Tauri lo desaconseja); paquetes de Rust `roni`, `roni_lib` y `roni-hook`; carpeta de datos `%APPDATA%\Roni`; carpeta local (hook, modelos, registro)
   `%LOCALAPPDATA%\Roni`; hook `%LOCALAPPDATA%\Roni\bin\roni-hook.exe`; named pipe `\\.\pipe\roni-<SID>`; servicio del Administrador de credenciales
-  `dev.roni.desktop`; marca de los hooks en `settings.json` de Claude Code: `roni-hook`. Así Roni y un Coucou instalado conviven: cada uno ve solo sus propios hooks.
+  `com.ldanielmc.roni`; marca de los hooks en `settings.json` de Claude Code: `roni-hook`. Así Roni y un Coucou instalado conviven: cada uno ve solo sus propios hooks.
 - **Se dejan como están a propósito** (contratos con terceros, no se ven): URLs de GitHub dentro de pruebas, y el protocolo del enlace con el teléfono
   (`coucou://pair`, `coucou.v1`, `_coucou._tcp`, relevo `coucou-link…`) hasta que exista una app de Android de Roni.
   Nombres internos de código en minúscula (`mochi`, `mochiOutfit`, `desktop_mochi_*`, carpeta `src/mochi/`) se renombran en la Rebanada 2 junto con el personaje.
@@ -36,3 +36,6 @@
   y no se han ejecutado: se revisan en la Rebanada 6.
 - **Textos traducidos:** la regla "Coucou/Mochi → Roni" vive en `windows/scripts/rebrand.mjs` y la usa `scripts/gen-strings.mjs`, así `strings.json` sigue siendo reproducible desde el catálogo del Mac.
 - **Ícono:** generado con `tauri icon` desde `roni-docs/diseno/roni.svg` (se quitó `scripts/gen-icons.mjs`, que dibujaba a Mochi).
+- **Identificador y versión (decididos por Dani tras probar la Rebanada 1):** el identificador de la app es `com.ldanielmc.roni` (reemplaza al `dev.roni.desktop` que había puesto yo)
+  y la versión de Roni es **0.1.0**, porque es una app nueva. Consecuencia: lo que se hubiera guardado en el Administrador de credenciales bajo el servicio anterior queda huérfano
+  (Roni no lo lee); los datos en `%APPDATA%\Roni` y `%LOCALAPPDATA%\Roni` no cambian de lugar.

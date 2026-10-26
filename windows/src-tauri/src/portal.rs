@@ -42,7 +42,7 @@ const REQUEST: &str = "org.freedesktop.portal.Request";
 const SESSION: &str = "org.freedesktop.portal.Session";
 /// Tauri's identifier. Told to the portal so the desktop files the shortcuts
 /// under Coucou rather than under an unnamed app.
-const APP_ID: &str = "dev.roni.desktop";
+const APP_ID: &str = "com.ldanielmc.roni";
 /// For the calls themselves, which answer at once: the user's answer comes
 /// later, in a Response signal.
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
