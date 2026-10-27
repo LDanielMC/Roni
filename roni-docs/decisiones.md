@@ -39,3 +39,22 @@
 - **Identificador y versión (decididos por Dani tras probar la Rebanada 1):** el identificador de la app es `com.ldanielmc.roni` (reemplaza al `dev.roni.desktop` que había puesto yo)
   y la versión de Roni es **0.1.0**, porque es una app nueva. Consecuencia: lo que se hubiera guardado en el Administrador de credenciales bajo el servicio anterior queda huérfano
   (Roni no lo lee); los datos en `%APPDATA%\Roni` y `%LOCALAPPDATA%\Roni` no cambian de lugar.
+- **El personaje "bombón" (Rebanada 2):** Roni se dibuja en código (`windows/src/mochi/roni.ts`) a partir de `roni-docs/diseno/roni.svg`: superelipse n=2.7, degradados, bisel, brillo,
+  gorro con costillas y pompón, ojitos con brillito. Es una sola pieza, en todos los tamaños. Lo que no se distingue se quita al achicarse: por debajo de 60 px de cuerpo, las costillas del gorro y la curva de la base;
+  por debajo de 30 px, además, el bisel, el brillo, el contorno, el doblez del gorro, el brillito de los ojos y las burbujas del pensamiento; por debajo de 18 px, la boca.
+  Los ojos, en cambio, crecen para que se vean (así se ve bien en la isla). El motor (`engine.ts`) conserva su API; lo que hace es nuevo: caras y movimiento de gelatina alrededor de la base.
+- **Estados de los agentes → expresiones** (el documento de diseño no dice cuál va con cuál; esta es la elección): inactivo = tranquilo; trabajando, pensando, buscando y límite de uso = pensando
+  (burbujitas); permiso pendiente = avisando (mira al usuario y tiembla un poco hasta que se responde); pregunta pendiente = avisando, con la cabeza inclinada y sin temblor; terminó = contento + salto; error = sorprendido; dormido = dormido;
+  mareado (tres clics seguidos) = sorprendido con balanceo. "Hablando" no es un estado de agente: la boca se mueve mientras llega la respuesta del chat y mientras habla la voz.
+  "Escuchando" del plan original ya no existe en el diseño: al escuchar, Roni está tranquilo.
+- **Una sola Roni por encabezado de sección y como logo de la ventana** (antes eran 2 a 5 Mochis de colores con disfraces). Las píldoras de servicios siguen distinguiéndose: su Roni toma el color
+  del servicio en el cuerpo (gorro negro siempre). La Roni principal de la isla toma el color de la píldora enfocada, igual que antes.
+- **Guardarropa apagado** (el gorro es parte de Roni): sin clic derecho, sin entrada en la bandeja, sin atajo (`wardrobeToggle` queda reservado como no disponible). El código de
+  `outfits.ts`, `wardrobe.ts` y `views/wardrobe.ts` sigue en el repositorio sin usarse; se borra cuando se decida limpiar lo heredado.
+- **Sin manos:** "No agregar cuerpo, brazos ni piernas". El saludo del arranque y el saludo de los mini-Ronis ahora son un balanceo alegre alrededor de la base.
+- **Consumo:** Roni respira todo el tiempo, y cada redibujo obliga a Windows a recomponer la ventana transparente (medido: ~0.1 % de la máquina por cada cuadro por segundo). Por eso, cuando solo hay
+  respiración, el bucle de la isla corre a 6 cuadros por segundo (10 si Roni está grande) y despierta al instante con cualquier evento; los lienzos de la ventana grande van a 30 fps; la sombra del piso es un
+  degradado, no un desenfoque; y el cuerpo con el gorro se pinta una vez por tamaño y color y se reutiliza. Medido en esta laptop (12 hilos, versión de desarrollo): con la ventana grande oculta,
+  Roni completo (isla, mini-Ronis y Roni de escritorio) gasta ~0.2 % y 0 % de GPU, como el Coucou original (~0.14 %); con la ventana grande abierta gasta ~5.7 % (el original midió ~2.3 %, pero en otra sesión).
+- **Íconos:** regenerados con `tauri icon` desde el diseño bombón (sin sombra del piso ni metadatos C2PA del SVG).
+- **Herramienta:** `windows/dev/roni-preview.html` (con `npm run dev`) muestra todas las caras a todos los tamaños; no se empaqueta.

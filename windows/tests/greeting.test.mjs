@@ -54,19 +54,24 @@ test("Roni stays inside the island when the greeting is cut short", () => {
   for (let tc = 0.3; tc < GREETING_END + 0.4; tc += 0.1) run(tc);
 });
 
-test("he slides to the side to wave, then comes back to the middle", () => {
+test("he slides to the side to say hello, then comes back to the middle", () => {
   const atWave = greetingPose(2.0);
   assert.ok(atWave.x < 290, `waving at x=${atWave.x}`);
-  assert.ok(atWave.handL > 0.9 && atWave.handR > 0.9, "both hands out");
-  assert.ok(atWave.wave >= 0, "waving");
+  assert.ok(atWave.wave >= 0, "saying hello");
+  assert.ok(Math.abs(greetingPose(1.7).tilt) > 0, "he rocks around his base (he has no hands to wave)");
   const back = greetingPose(3.6);
   assert.equal(back.x, 320);
-  assert.equal(back.handL, 0);
+  assert.equal(back.wave, -1, "the hello is over");
+  assert.equal(back.tilt, 0);
 });
 
 test("he lands where the compact island's Roni sits", () => {
   const end = greetingPose(10, 5);
-  assert.equal(end.y, NOTCH_H / 2);
+  // The same Roni as the island's: 0.684 of the bot's canvas (its diameter over 0.6) wide,
+  // and 15.5 units of the design (of 284 of body height) below the canvas's centre.
+  const diameter = Math.min(20, Math.max(0, NOTCH_H - 6));
+  assert.ok(Math.abs(end.hb * (300 / 284) - 0.684 * (diameter / 0.6)) < 1e-9, `the width he ends with: ${end.hb * (300 / 284)}`);
+  assert.ok(Math.abs(end.y - (NOTCH_H / 2 + (15.5 / 284) * end.hb)) < 1e-9);
   assert.equal(end.x, GREETING_W / 2 - COMPACT_W / 2 + 40);
   assert.equal(end.minis, 1);
 });

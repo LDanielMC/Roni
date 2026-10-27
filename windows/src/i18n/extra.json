@@ -2731,19 +2731,6 @@
       "de": "Doppelt belegt",
       "tr": "İki kez kullanılmış"
     },
-    "Wardrobe…": {
-      "zh-Hans": "衣橱…",
-      "hi": "अलमारी…",
-      "es": "Guardarropa…",
-      "ar": "خزانة الملابس…",
-      "fr": "Garde-robe…",
-      "bn": "পোশাক ঘর…",
-      "pt-BR": "Guarda-roupa…",
-      "ru": "Гардероб…",
-      "id": "Lemari…",
-      "de": "Garderobe…",
-      "tr": "Gardırop…"
-    },
     "Warning: the key would be sent unencrypted (http://) to another machine. Use https://, or a server on this computer.": {
       "zh-Hans": "警告：密钥将以未加密的方式（http://）发送到另一台机器。请使用 https://，或本机上的服务器。",
       "hi": "चेतावनी: कुंजी बिना एन्क्रिप्शन (http://) के किसी दूसरी मशीन को भेजी जाएगी। https:// या इसी कंप्यूटर का सर्वर उपयोग करें।",

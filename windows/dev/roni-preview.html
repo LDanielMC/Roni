@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Roni — faces and sizes</title>
+    <style>
+      html, body { overflow: auto !important; height: auto !important; }
+      body { margin: 0; background: #1b1b1f; font: 12px system-ui; color: #bbb; padding: 16px; }
+      h2 { font-size: 12px; font-weight: 600; margin: 18px 0 6px; color: #888; }
+      .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+      figure { margin: 0; text-align: center; }
+      canvas { display: block; background: #232328; border-radius: 10px; }
+      .light canvas { background: #f1f1f4; }
+    </style>
+  </head>
+  <body>
+    <div id="out"></div>
+    <script type="module" src="./roni-preview.ts"></script>
+  </body>
+</html>

@@ -16,6 +16,10 @@ import type { Outfit } from "../mochi/wardrobe";
 interface Animated {
   el: HTMLCanvasElement;
   draw(dt: number, t: number): void;
+  /** Draw at most this often, in milliseconds (a character needs 30 frames a second, not 60). */
+  every?: number;
+  /** Time since the last draw, while `every` waits. */
+  waited?: number;
   /** Pages are built before they are put in the window: dropped only once gone. */
   shown?: boolean;
   born?: number;
@@ -44,7 +48,14 @@ function loop(now: number) {
       continue;
     }
     a.shown = true;
-    if (onScreen(a.el.getBoundingClientRect(), window.innerWidth, window.innerHeight)) a.draw(dt, t);
+    let step = dt;
+    if (a.every) {
+      a.waited = (a.waited ?? 0) + dt;
+      if (a.waited * 1000 < a.every - 3) continue;
+      step = Math.min(0.1, a.waited);
+      a.waited = 0;
+    }
+    if (onScreen(a.el.getBoundingClientRect(), window.innerWidth, window.innerHeight)) a.draw(step, t);
   }
   if (running()) frame = requestAnimationFrame(loop);
 }
@@ -236,9 +247,10 @@ class Walker {
   waving = 0;
 
   constructor(public spec: MochiSpec) {
-    this.engine.bodyColor = hexToRGB(spec.color);
+    // Roni is Roni on every page: no colours, no outfits (the hat is his own).
+    // The band draws the shadow under him, with the hop.
+    this.engine.floorShadow = false;
     this.engine.setState(spec.state ?? "idle", true);
-    if (spec.outfit && spec.outfit !== "none") this.engine.setOutfit(spec.outfit, false);
   }
 }
 
@@ -265,6 +277,7 @@ export function troupe(canvas: HTMLCanvasElement, cast: MochiSpec[], width: numb
 
   add({
     el: canvas,
+    every: 33,
     draw(dt, t) {
       const { w: cw, h: ch, ctx } = fit(canvas);
       if (!ctx || cw === 0) return;
@@ -307,8 +320,13 @@ export function troupe(canvas: HTMLCanvasElement, cast: MochiSpec[], width: numb
         }
         // Hops: a simple ballistic jump.
         if (w.hopV !== 0 || w.hop > 0) {
+          // Never higher than the room above him (hat and pompom stay inside the band): the
+          // launch speed is capped so the arc ends right there, not against a ceiling.
+          const room = Math.max(0, ch - 8 - 0.718 * s - 4);
+          const vMax = Math.sqrt(2 * 900 * Math.max(0, room - w.hop));
+          if (w.hopV > vMax) w.hopV = vMax;
           w.hopV -= 900 * dt;
-          w.hop = Math.max(0, w.hop + w.hopV * dt);
+          w.hop = Math.min(room, Math.max(0, w.hop + w.hopV * dt));
           if (w.hop === 0 && w.hopV < 0) {
             w.hopV = 0;
             w.engine.squash();
@@ -323,15 +341,16 @@ export function troupe(canvas: HTMLCanvasElement, cast: MochiSpec[], width: numb
           w.engine.lookY = 0.1 + 0.1 * Math.sin(t + w.spec.start * 7);
         }
         w.engine.update(dt);
-        // `size` is the drawing's square, as on the Mac; the body is about 0.68 of it.
+        // `size` is the drawing's square; the body is about 0.68 of it wide and its base
+        // sits at 0.86 of it (roni.ts: the figure, pompom to base, is centred in the square).
         const box = s;
         const floor = ch - 8;
         ctx.save();
-        ctx.translate(w.x - box / 2, floor - box * 0.78 - w.hop);
+        ctx.translate(w.x - box / 2, floor - box * 0.859 - w.hop);
         // A soft shadow on the floor.
         ctx.fillStyle = `rgba(0,0,0,${0.35 * (1 - Math.min(1, w.hop / 60))})`;
         ctx.beginPath();
-        ctx.ellipse(box / 2, box * 0.78 + w.hop - 1, s * 0.3, s * 0.05, 0, 0, Math.PI * 2);
+        ctx.ellipse(box / 2, box * 0.859 + w.hop + 2, s * 0.3, s * 0.045, 0, 0, Math.PI * 2);
         ctx.fill();
         w.engine.draw(ctx, box, box);
         ctx.restore();
@@ -341,9 +360,8 @@ export function troupe(canvas: HTMLCanvasElement, cast: MochiSpec[], width: numb
 }
 
 /** One Mochi alone (the sidebar's logo, an empty page). */
-export function liveMochi(canvas: HTMLCanvasElement, color = "#F5F6F8", state: BotStateName = "idle") {
+export function liveMochi(canvas: HTMLCanvasElement, _color = "#F5F6F8", state: BotStateName = "idle") {
   const engine = new BotEngine();
-  engine.bodyColor = hexToRGB(color);
   engine.setState(state, true);
   canvas.addEventListener("click", () => engine.slap());
   let mouse: { x: number; y: number } | null = null;
@@ -353,6 +371,7 @@ export function liveMochi(canvas: HTMLCanvasElement, color = "#F5F6F8", state: B
   });
   add({
     el: canvas,
+    every: 33,
     draw(dt) {
       const { w, h, ctx } = fit(canvas);
       if (!ctx || w === 0) return;
@@ -431,7 +450,9 @@ export function hero(page: string, title: string, subtitle: string | null, actio
   }
   el.append(back, mochis, copy);
   backdrop(back, theme.color, el);
-  troupe(mochis, theme.cast, compact ? 280 : 340);
+  // One Roni per band, big enough to read: the page's own colour is the band's, not his.
+  const lead = theme.cast[0];
+  troupe(mochis, [m("#F5F6F8", compact ? 100 : 160, 0.7, { state: lead.state, roams: lead.roams })], compact ? 280 : 340);
   return el;
 }
 

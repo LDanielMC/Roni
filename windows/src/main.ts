@@ -83,10 +83,6 @@ async function main() {
         setPaused(false);
         void Recap.open(island);
         break;
-      case "wardrobe":
-        setPaused(false);
-        island.alert("wardrobe");
-        break;
       // "Update Coucou to X…", only in the menu while a new version is out.
       case "update":
         setPaused(false);

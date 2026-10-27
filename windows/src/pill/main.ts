@@ -9,7 +9,7 @@ import "./pill.css";
 import { Bridge, onEvent } from "../core/bridge";
 import { FlowBridge, clock, type PillState } from "../core/flow";
 import type { Settings } from "../core/state";
-import { BotEngine, hexToRGB } from "../mochi/engine";
+import { BotEngine } from "../mochi/engine";
 import { resolveLanguage, setLanguage, systemLanguages, t } from "../i18n/i18n";
 import { HUB_ICONS, keyLabel } from "../hub/ui";
 
@@ -49,7 +49,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""):
 
 const mochi = new BotEngine();
 mochi.isMini = true;
-mochi.bodyColor = hexToRGB("#F5F6F8");
 mochi.setState("idle", true);
 const mochiCanvas = el("canvas");
 
@@ -381,6 +380,9 @@ function tick(now: number) {
   if (l !== "note" || hovered) {
     mochi.lookX = Math.sin(now / 900) * 0.6;
     mochi.lookY = Math.cos(now / 1300) * 0.3;
+    // His face follows the voice: thinking while it works, his mouth moving while it answers.
+    mochi.setState(state.phase === "thinking" || state.voice?.phase === "thinking" ? "thinking" : "idle");
+    mochi.speaking = speaking && state.voice?.phase === "speaking";
     mochi.update(dt);
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const size = 22 / 0.6;

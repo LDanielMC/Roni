@@ -211,6 +211,27 @@ class AppState {
 
   stateOverride: BotStateName | null = null;
 
+  /** Roni is answering (the chat's answer arrives, the voice speaks): his mouth moves. */
+  talking = false;
+  private talkTimer: number | null = null;
+
+  /** Roni talks for `ms` milliseconds, then stops (an answer that arrives whole). */
+  talkFor(ms: number) {
+    if (this.talkTimer != null) window.clearTimeout(this.talkTimer);
+    this.talking = true;
+    this.talkTimer = window.setTimeout(() => {
+      this.talking = false;
+      this.talkTimer = null;
+    }, ms);
+  }
+
+  /** Roni stops talking now. */
+  stopTalking() {
+    if (this.talkTimer != null) window.clearTimeout(this.talkTimer);
+    this.talkTimer = null;
+    this.talking = false;
+  }
+
   /** Cursor in logical screen pixels, origin top-left (like AppState.mousePosition). */
   mouse = { x: 0, y: 0 };
   /** Cursor relative to the island's top-left corner. */

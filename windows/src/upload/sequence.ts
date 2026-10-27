@@ -515,9 +515,12 @@ class UploadSequence {
     const ry = R * (0.97 - 0.03 * mc);
     const mh = f.mouth * R * mc;
     const mw = 2 * rx - 0.24 * R;
+    /** The body's base, below its centre (142 of the design's 300-wide body). */
+    const P = (142 * f.d) / 300;
     f.mouthRect = {
       x: x + (-mw / 2) * sx,
-      y: y + f.hop + (-ry + 0.1 * R) * sy,
+      // He squashes around his base (canvas.ts), not around his middle.
+      y: y + f.hop + P + (-ry + 0.1 * R - P) * sy,
       w: mw * sx,
       h: mh * sy,
     };

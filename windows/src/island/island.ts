@@ -15,8 +15,11 @@ import { State } from "../core/state";
 import { SPOTIFY_ID, islandDances } from "../core/spotify";
 import { BotEngine, hexToRGB } from "../mochi/engine";
 import { Greeting } from "../mochi/greeting";
-import { createMiniBot, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
+import { createMiniBot, miniBotsCalm, pruneMiniBots, syncMiniBotStates, tickMiniBots } from "../mochi/minibots";
 import { SeasonCache, parseOutfit } from "../mochi/wardrobe";
+
+/** Mochi's wardrobe is switched off: Roni wears his own hat and nothing else. */
+const WARDROBE_ENABLED = false;
 import { UploadCanvas } from "../upload/canvas";
 import { USC, UploadSeq } from "../upload/sequence";
 import { closePlanCard, openPlanColor, planCardOpen } from "../views/usage";
@@ -486,6 +489,11 @@ export class Island {
 
   /** Right-click on Mochi: wardrobe open ↔ back to the usual view. */
   toggleWardrobe() {
+    // Roni has no wardrobe: the hat is part of him (roni-docs/diseno/personaje.md).
+    if (WARDROBE_ENABLED) this.openWardrobe();
+  }
+
+  private openWardrobe() {
     if (State.paused || State.mode === "hidden") return;
     // The greeting and the drop sequence draw a Mochi of their own.
     if (State.mode === "expanded" && (State.view === "greeting" || this.uploadActive)) return;
@@ -507,6 +515,7 @@ export class Island {
    * and the wardrobe shortcut (`open-wardrobe`) both land here.
    */
   wardrobeAnywhere() {
+    if (!WARDROBE_ENABLED) return;
     if (State.mode === "expanded" && State.view === "wardrobe") {
       this.setView(State.defaultView());
       return;
@@ -987,14 +996,32 @@ export class Island {
   // ── Frame loop ──────────────────────────────────────────────────────────────
 
   ensureRunning() {
-    if (this.running) return;
+    if (this.running) {
+      // Waiting out a slow, resting frame: anything that happens wakes it at once.
+      if (this.restTimer != null) {
+        window.clearTimeout(this.restTimer);
+        this.restTimer = null;
+        requestAnimationFrame(this.frame);
+      }
+      return;
+    }
     this.running = true;
     this.lastFrame = performance.now();
     requestAnimationFrame(this.frame);
   }
 
+  /**
+   * Roni breathes all the time, but breathing moves a fraction of a pixel a second:
+   * while nothing else moves the loop runs a few times a second, not 60. Every
+   * redraw makes Windows recompose this transparent window, which is what costs
+   * (about 0.1 % of the machine per frame a second, measured).
+   */
+  private resting = false;
+  private restTimer: number | null = null;
+
   private frame = (nowMs: number) => {
-    const dt = Math.min(0.05, (nowMs - this.lastFrame) / 1000);
+    // A resting loop wakes up rarely: let its animations catch up in one longer step.
+    const dt = Math.min(this.resting ? 0.3 : 0.05, (nowMs - this.lastFrame) / 1000);
     this.lastFrame = nowMs;
 
     this.width.step(dt, nowMs);
@@ -1055,7 +1082,19 @@ export class Island {
         !this.botCx.settled || !this.botCy.settled || !this.botSize.settled ||
         greetingActive || this.engine.busy || UploadSeq.isActive || viewAnimating;
 
-    if (busy) {
+    this.resting =
+      State.mode !== "hidden" && !settling && !greetingActive && !UploadSeq.isActive && !viewAnimating &&
+      this.botCx.settled && this.botCy.settled && this.botSize.settled &&
+      !State.talking && this.engine.ambientOnly && miniBotsCalm();
+
+    if (busy && this.resting) {
+      // Nothing but breathing: the next frame in a while (6 a second when small, 10 when big).
+      const wait = this.botSize.value < 60 ? 1000 / 6 : 1000 / 10;
+      this.restTimer = window.setTimeout(() => {
+        this.restTimer = null;
+        requestAnimationFrame(this.frame);
+      }, wait - 8);
+    } else if (busy) {
       requestAnimationFrame(this.frame);
     } else {
       this.running = false;
@@ -1126,6 +1165,7 @@ export class Island {
           ? hexToRGB(focus.color)
           : null;
     this.engine.particleOverhang = BOT_OVERHANG;
+    this.engine.speaking = State.talking;
     this.engine.lookX = this.lookX();
     this.engine.lookY = this.lookY();
     if (this.engine.morph > 0.3) {

@@ -1,4 +1,4 @@
-// Notification-area icon: Open, Weekly recap, Wardrobe, Settings, Pause, Quit.
+// Notification-area icon: Open, Weekly recap, Settings, Pause, Quit (Roni has no wardrobe).
 // "Update Coucou to X…" shows under Open only while a new version is out
 // (update.rs). While one waits, the tray Mochi turns blue like the island's.
 
@@ -14,10 +14,9 @@ use crate::island::WINDOW_LABEL;
 
 /// The menu's items, id and English label, in order. The labels are shown in
 /// the interface language (i18n.rs) and follow it when it changes.
-const ITEMS: [(&str, &str); 6] = [
+const ITEMS: [(&str, &str); 5] = [
     ("open", n_("Open Roni")),
     ("recap", n_("Weekly recap")),
-    ("wardrobe", n_("Wardrobe…")),
     ("settings", n_("Settings…")),
     ("pause", n_("Pause")),
     ("quit", n_("Quit")),
@@ -42,11 +41,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     for (id, label) in ITEMS {
         items.push((label, MenuItem::with_id(app, id, t(label), true, None::<&str>)?));
     }
-    let [open, recap, wardrobe, settings, pause, quit] = [0, 1, 2, 3, 4, 5].map(|i| &items[i].1);
+    let [open, recap, settings, pause, quit] = [0, 1, 2, 3, 4].map(|i| &items[i].1);
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
-    let menu = Menu::with_items(app, &[open, recap, &sep1, wardrobe, settings, pause, &sep2, quit])?;
+    let menu = Menu::with_items(app, &[open, recap, &sep1, settings, pause, &sep2, quit])?;
     app.manage(Items(items));
     // Its click goes to the island like the others (id "update"): it opens the update card.
     let update = MenuItem::with_id(app, "update", "", true, None::<&str>)?;

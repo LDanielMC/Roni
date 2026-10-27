@@ -73,14 +73,14 @@ test("the descriptions the Wayland portal shows are the labels Settings shows", 
 });
 
 // testEnabledByDefault
-test("only the island toggle is off by default; the one not ported yet is reserved", () => {
+test("only the island toggle is off by default; the ones Roni does not have are reserved", () => {
   for (const d of SHORTCUTS) {
     assert.equal(d.enabledByDefault, d.id !== "toggleIsland", d.id);
-    assert.equal(d.ported, d.id !== "attachFrontWindow", d.id);
+    // No attaching a window yet, and no wardrobe: Roni's hat is his own.
+    assert.equal(d.ported, d.id !== "attachFrontWindow" && d.id !== "wardrobeToggle", d.id);
   }
   assert.deepEqual(activeKeys({}).map(([id]) => id), [
     "openChat", "goToAlert", "jumpToTerminal", "nextPill", "prevPill", "muteToggle", "desktopToggle",
-    "wardrobeToggle",
   ]);
   // The Mac's ⌃⌥D, on the same letter (Roni adds Shift so Coucou can run beside it).
   assert.equal(SHORTCUTS.find((d) => d.id === "desktopToggle").defaultKeys, "Ctrl+Alt+Shift+D");

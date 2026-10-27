@@ -1,4 +1,4 @@
-// Mini Mochis (pills + compact grid) — port of MiniBotCanvasView.
+// Mini Ronis (pills + compact grid) — port of MiniBotCanvasView.
 // Each canvas owns a BotEngine; the island's frame loop ticks every live one.
 
 import { BotEngine, hexToRGB } from "./engine";
@@ -44,11 +44,7 @@ export function createMiniBot(task: AgentTask, bodySize: number, dancing?: () =>
   engine.bodyColor = hexToRGB(task.color);
   engine.setState(task.state, true);
   if (task.emote) engine.setPermanentEmote(task.emote);
-  if (task.miniEye) {
-    engine.permanentEye = task.miniEye;
-    engine.eyeOverride = task.miniEye;
-    engine.eyeOverrideUntil = Number.POSITIVE_INFINITY;
-  }
+  if (task.miniEye) engine.setPermanentFace(task.miniEye);
 
   live.set(canvas, { canvas, engine, cssSize: engineSize, taskId: task.id, dancing });
   return slot;
@@ -97,3 +93,9 @@ export function tickMiniBots(dt: number) {
 }
 
 export const miniBotCount = () => live.size;
+
+/** True when no mini Roni is doing more than breathing: the island may draw at a resting pace. */
+export function miniBotsCalm(): boolean {
+  for (const mb of live.values()) if (!mb.engine.ambientOnly) return false;
+  return true;
+}

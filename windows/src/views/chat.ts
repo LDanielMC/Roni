@@ -255,6 +255,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
   void onEvent<string>("chat-delta", (text) => {
     if (!sending || !text) return; // nothing visible yet: the dots stay
+    State.talking = true; // the answer is arriving: Roni talks
     if (!live) {
       live = h("div", { class: "reply" });
       log.querySelector(".typing")?.parentElement?.remove();
@@ -286,9 +287,12 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       const reply = await Bridge.chatSend(query, context);
       State.chatHistory.push({ id: nextId++, role: "assistant", content: reply.text });
       State.stateOverride = null;
+      // He talks as long as the answer takes to read, up to a few seconds.
+      State.talkFor(Math.min(4000, 600 + reply.text.length * 25));
       Sound.play("finish");
     } catch (err) {
       State.stateOverride = null;
+      State.stopTalking();
       State.noteMessage = String(err).replace(/^Error:\s*/, "");
       State.view = "note";
       Sound.play("error");

@@ -80,7 +80,8 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
   def("prevPill", "Ctrl+Alt+Shift+Left", true, true),
   def("muteToggle", "Ctrl+Alt+Shift+S", true, true),
   def("desktopToggle", "Ctrl+Alt+Shift+D", true, true),
-  def("wardrobeToggle", "Ctrl+Alt+Shift+G", true, true),
+  // Roni has no wardrobe: the id and its keys stay reserved, as for the Mac-only actions.
+  def("wardrobeToggle", "Ctrl+Alt+Shift+G", true, false),
 ];
 
 export interface Binding {

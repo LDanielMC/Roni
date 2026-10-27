@@ -1,20 +1,25 @@
-// Mochi — direct port of NotchBuddy/Sources/App/BotEngine.swift to Canvas 2D.
-// Same constants, same tweens, same easings, same particles. The only intentional
-// difference is the `happy`/`wink` eye arc, which follows the prototype
-// (design/prototype/notch-buddy.html, the visual source of truth) — the Swift
-// arc angles produce a different shape.
+// Roni's engine: what Roni does (the faces, the jelly motion, the particles,
+// the badge) and when. The painting itself is roni.ts. This file used to be a
+// port of the original app's BotEngine; the API the island, the desktop, the
+// pill and the pages call is the same, the character behind it is Roni's
+// (roni-docs/diseno/personaje.md).
+//
+// Jelly: squash and stretch around the body's base (the "feet"), so Roni
+// settles on the floor instead of shrinking around his middle.
 
-import { Ease, lerp, type EaseFn } from "../core/anim";
+import { Ease, type EaseFn } from "../core/anim";
 import { Sound } from "../core/sound";
 import type { BotEmoteName, BotStateName } from "../core/layout";
-import { PUMPKIN_BODY, drawOutfitBehind, drawOutfitFront, makeHead } from "./outfits";
 import type { Outfit } from "./wardrobe";
+import {
+  BODY_A, BODY_B, FIGURE_BOTTOM, FIGURE_TOP, bodyPath, detailFor, deviceRatio, drawRoni, drawRoniShadow,
+  type Face, type RGB, type RoniPose,
+} from "./roni";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+export type { Face, RGB };
 
-export type EyeShape =
-  | "pill" | "wide" | "dot" | "line" | "flat" | "happy" | "closed"
-  | "spiral" | "heart" | "star" | "tired" | "wink" | "cup";
+/** Kept for the pages that name a mini's face; the faces are Roni's now. */
+export type EyeShape = Face;
 
 export type BadgeKind = "dots" | "bang" | "question" | "dot" | "arrow";
 
@@ -22,8 +27,6 @@ export interface Badge {
   kind: BadgeKind;
   color: RGB;
 }
-
-export type RGB = readonly [number, number, number]; // components 0…1
 
 export type TweenKey = readonly [target: number, durationMs: number, ease: EaseFn];
 
@@ -37,21 +40,21 @@ interface Tween {
 }
 
 type PropKey =
-  | "yaw" | "pitch" | "roll" | "tilt" | "open" | "sx" | "sy"
-  | "oy" | "ox" | "tint" | "morph" | "hands" | "blush" | "es" | "badgeS"
-  | "outfitPresence";
+  | "yaw" | "pitch" | "tilt" | "open" | "sx" | "sy"
+  | "oy" | "ox" | "morph" | "es" | "badgeS";
 
 interface BotStateCfg {
-  color: RGB;
-  tint: number;
-  eye: EyeShape;
+  face: Face;
   badge: Badge | null;
-  bounces: boolean;
+  /** A small side-to-side shake now and then, until the user answers. */
+  tremble: boolean;
   scans: boolean;
-  breathes: boolean;
+  /** Slower, deeper breathing. */
+  sleepy: boolean;
   zz: boolean;
   sweat: boolean;
-  look: readonly [number, number] | null;
+  /** Looks at the user, not where the pointer is. */
+  forward: boolean;
   tilt: number;
 }
 
@@ -61,19 +64,10 @@ interface Particle {
   age: number; life: number; rot: number; size: number;
 }
 
-// ── Constants (MochiConst / PISTES.mochi) ─────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const EYE_W = 0.25;
-const EYE_H = 0.27;
-const EYE_SP = 0.37;
-const EYE_P = -0.12;
-const BASE_TOP: RGB = [0.929, 0.929, 0.937]; // #EDEDEF
-const BASE_BOTTOM: RGB = [0.769, 0.773, 0.792]; // #C4C5CA
-const INK = "rgb(26,20,18)"; // #1A1412
-const MINI_INK = "rgb(16,19,26)"; // #10131A
-
+/** Colours of the badges (and of the states' halo on the island). */
 const C = {
-  idle: [0.902, 0.914, 0.933] as RGB,
   working: [0.231, 0.62, 1] as RGB,
   thinking: [0.545, 0.361, 0.965] as RGB,
   searching: [0.388, 0.396, 0.949] as RGB,
@@ -82,44 +76,50 @@ const C = {
   error: [0.957, 0.314, 0.369] as RGB,
   finished: [0.204, 0.831, 0.6] as RGB,
   ratelimit: [0.984, 0.573, 0.235] as RGB,
-  sleeping: [0.58, 0.635, 0.722] as RGB,
-  dizzy: [0.957, 0.447, 0.714] as RGB,
 };
 
 const base = {
-  bounces: false, scans: false, breathes: false, zz: false, sweat: false,
-  look: null, tilt: 0,
+  tremble: false, scans: false, sleepy: false, zz: false, sweat: false, forward: false, tilt: 0,
 };
 
+/** Which face goes with what the agents are doing. */
 export const BOT_STATES: Record<BotStateName, BotStateCfg> = {
-  idle: { ...base, color: C.idle, tint: 0, eye: "pill", badge: null },
-  working: { ...base, color: C.working, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.working } },
-  thinking: { ...base, color: C.thinking, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.thinking }, look: [0.55, 0.55] },
-  searching: { ...base, color: C.searching, tint: 0.72, eye: "pill", badge: { kind: "dots", color: C.searching }, scans: true },
-  approval: { ...base, color: C.approval, tint: 0.78, eye: "wide", badge: { kind: "bang", color: C.approval }, bounces: true },
-  question: { ...base, color: C.question, tint: 0.75, eye: "pill", badge: { kind: "question", color: C.question }, tilt: 0.17 },
-  error: { ...base, color: C.error, tint: 0.78, eye: "flat", badge: { kind: "dot", color: C.error } },
-  finished: { ...base, color: C.finished, tint: 0.35, eye: "happy", badge: { kind: "dot", color: C.finished } },
-  ratelimit: { ...base, color: C.ratelimit, tint: 0.72, eye: "tired", badge: { kind: "dot", color: C.ratelimit }, sweat: true },
-  sleeping: { ...base, color: C.sleeping, tint: 0.32, eye: "closed", badge: null, breathes: true, zz: true },
-  dizzy: { ...base, color: C.dizzy, tint: 0.7, eye: "spiral", badge: null },
+  idle: { ...base, face: "calm", badge: null },
+  working: { ...base, face: "thinking", badge: { kind: "dots", color: C.working } },
+  thinking: { ...base, face: "thinking", badge: { kind: "dots", color: C.thinking } },
+  searching: { ...base, face: "thinking", badge: { kind: "dots", color: C.searching }, scans: true },
+  approval: { ...base, face: "alert", badge: { kind: "bang", color: C.approval }, tremble: true, forward: true },
+  question: { ...base, face: "alert", badge: { kind: "question", color: C.question }, forward: true, tilt: 0.12 },
+  error: { ...base, face: "surprised", badge: { kind: "dot", color: C.error } },
+  finished: { ...base, face: "happy", badge: { kind: "dot", color: C.finished } },
+  ratelimit: { ...base, face: "thinking", badge: { kind: "dot", color: C.ratelimit }, sweat: true },
+  sleeping: { ...base, face: "sleeping", badge: null, sleepy: true, zz: true },
+  dizzy: { ...base, face: "surprised", badge: null },
 };
 
-/** State → sound, as in BotStateCfg.sound. */
+/** State → sound. Roni ships none (windows/sounds/): a file of the user's own plays. */
 export const STATE_SOUND: Partial<Record<BotStateName, string>> = {
   working: "work", thinking: "think", searching: "search", approval: "approval",
   question: "question", error: "error", finished: "finish", ratelimit: "rate",
   sleeping: "sleep", dizzy: "dizzy",
 };
 
-const EMOTE_EYE: Record<BotEmoteName, EyeShape> = {
-  love: "heart", surprised: "dot", proud: "star", wink: "wink",
-  yawn: "tired", happy: "happy", annoyed: "line",
+/** The emotes the pages ask for, in Roni's faces (null: no face of its own, just the motion). */
+const EMOTE_FACE: Record<BotEmoteName, Face | null> = {
+  love: "happy", surprised: "surprised", proud: "happy", wink: "happy",
+  yawn: "sleeping", happy: "happy", annoyed: null,
 };
+
+/** States where Roni may open his mouth to talk. */
+const CAN_TALK = new Set<BotStateName>(["idle", "working", "thinking", "searching", "finished", "error", "ratelimit"]);
+
+/** Where one unit of the design sits on the canvas: the body is `0.684 W` wide, as before. */
+const BODY_HALF_W = 0.342;
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
 const now = () => performance.now() / 1000;
+const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 
 export function hexToRGB(hex: string): RGB {
   const h = hex.replace("#", "");
@@ -129,10 +129,6 @@ export function hexToRGB(hex: string): RGB {
 
 const rgba = (c: RGB, a = 1) =>
   `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${a})`;
-
-const mix3 = (a: RGB, b: RGB, t: number): RGB => [
-  lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t),
-];
 
 function roundRectPath(x: CanvasRenderingContext2D, X: number, Y: number, W: number, H: number, R: number) {
   const r = Math.max(0, Math.min(R, W / 2, H / 2));
@@ -165,7 +161,7 @@ function starPath(x: CanvasRenderingContext2D, ro: number, ri: number) {
 
 const FONT = `system-ui, "Segoe UI Variable Text", "Segoe UI", sans-serif`;
 
-// ── Dance (BotEngine.applyDance, macOS) ──────────────────────────────────────
+// ── Dance ─────────────────────────────────────────────────────────────────────
 
 /** The dance fades in over 0.3 s and out over 0.5 s. */
 export function stepDanceLevel(level: number, dancing: boolean, dt: number): number {
@@ -196,34 +192,18 @@ export function danceTransform(seconds: number, level: number, R: number) {
 
 export class BotEngine {
   isMini = false;
-  /** Solid body colour for mini bots / integration pills (null = Mochi gradient). */
+  /** A colour the body takes (mini pills, the focused pill, the update blue); null = Roni's cream. */
   bodyColor: RGB | null = null;
   /**
-   * A new Coucou waits (whats-new/whats-new.ts): while Mochi is idle or asleep
+   * A new version waits (whats-new/whats-new.ts): while Roni is idle or asleep
    * he wears the up-arrow badge. The island turns his body blue alongside.
    */
   private updateHint: RGB | null = null;
 
-  // Animated state (BotEngine `s`)
-  yaw = 0; pitch = 0; roll = 0; tilt = 0; open = 1;
+  // Animated values
+  yaw = 0; pitch = 0; tilt = 0; open = 1;
   sx = 1; sy = 1; oy = 0; ox = 0;
-  tint = 0; morph = 0; hands = 0; blush = 0; es = 1; badgeS = 0;
-
-  // Outfit (the main Mochi only — minis never wear one). `outfit` is what is
-  // drawn; it changes only once the previous one has left.
-  outfit: Outfit = "none";
-  /** 0 = gone, 1 = fully on. */
-  outfitPresence = 0;
-  private outfitTarget: Outfit = "none";
-
-  // Spring lag of the soft parts (pompoms, hat tips, scarf end), −1…1.
-  physDx = 0;
-  physDy = 0;
-  private physVx = 0;
-  private physVy = 0;
-  private prevYaw = 0;
-  private prevOy = 0;
-  private prevRoll = 0;
+  morph = 0; es = 1; badgeS = 0;
 
   // Targets
   tgYaw = 0; tgPitch = 0; tgTilt = 0; tgSy = 1; tgSx = 1; tgEs = 1;
@@ -231,22 +211,26 @@ export class BotEngine {
   /** Extra canvas height above the body so hearts can fly out without clipping. */
   particleOverhang = 0;
 
+  /** Draws Roni's own shadow on the floor; a page that draws its own turns it off. */
+  floorShadow = true;
+
   /** Dancing to music; `dancingLevel` follows it, 0→1 in 0.3 s, 1→0 in 0.5 s. */
   isDancing = false;
   dancingLevel = 0;
 
-  // Mouth spring (fraction of R)
+  // The file drop's slot: a spring (fraction of the box's size)
   slotH = 0; slotHTarget = 0; slotHVel = 0; isChewing = false;
-
-  col: RGB = C.idle;
-  colT: RGB = C.idle;
 
   state: BotStateName = "idle";
   cfg: BotStateCfg = BOT_STATES.idle;
 
-  eyeOverride: EyeShape | null = null;
-  eyeOverrideUntil = 0;
-  permanentEye: EyeShape | null = null;
+  /** Roni talks: his mouth opens and closes (the chat's answer, the voice). */
+  speaking = false;
+  private mouthLevel = 0;
+
+  faceOverride: Face | null = null;
+  faceOverrideUntil = 0;
+  permanentFace: Face | null = null;
   permanentEmote: BotEmoteName | null = null;
   miniNextBehavior = 0;
 
@@ -282,14 +266,12 @@ export class BotEngine {
     const prev = this.state;
     this.state = next;
     this.cfg = BOT_STATES[next];
-    this.colT = this.cfg.color;
-    if (!this.locks.has("tint")) this.tint = this.cfg.tint;
     if (!this.locks.has("tilt")) this.tgTilt = this.cfg.tilt;
     this.setBadge(this.stateBadge());
 
     switch (next) {
       case "finished":
-        this.doRoll(950, 1);
+        this.jump();
         setTimeout(() => this.emit("spark", 5), 500);
         break;
       case "error":
@@ -302,7 +284,10 @@ export class BotEngine {
         this.anim("oy", [[-0.2, 150, Ease.out], [0, 300, Ease.back]]);
         break;
       case "dizzy":
-        this.doRoll(1300, 2);
+        this.anim("tilt", [
+          [0.2, 120, Ease.out], [-0.2, 200, Ease.inOut], [0.16, 200, Ease.inOut],
+          [-0.12, 200, Ease.inOut], [0.06, 200, Ease.inOut], [0, 260, Ease.out],
+        ]);
         break;
       case "question":
         this.blink();
@@ -324,7 +309,7 @@ export class BotEngine {
     this.setBadge(this.stateBadge());
   }
 
-  /** Whether the update hint shows now: only over an idle or sleeping Mochi. */
+  /** Whether the update hint shows now: only over an idle or sleeping Roni. */
   get showsUpdateHint(): boolean {
     return this.updateHint != null && (this.state === "idle" || this.state === "sleeping");
   }
@@ -347,18 +332,47 @@ export class BotEngine {
     }, 100);
   }
 
+  /** The eyes drop to a sliver for an instant (personaje.md: vertical scale 0.1). */
   blink() {
     if (this.locks.has("open")) return;
-    this.anim("open", [[0.06, 70, Ease.inOut], [1, 130, Ease.out]]);
+    this.anim("open", [[0.1, 70, Ease.inOut], [1, 130, Ease.out]]);
   }
 
+  /** A short squash, for landings and small knocks. */
   squash() {
-    this.physVy += 0.6;
     this.anim("sy", [[0.78, 70, Ease.out], [1.1, 130, Ease.out], [1, 170, Ease.inOut]]);
     this.anim("sx", [[1.16, 70, Ease.out], [0.95, 130, Ease.out], [1, 170, Ease.inOut]]);
   }
 
-  /** Mailbox swallow — opens the slot, chews, then closes. */
+  /** "Apachurrar" (a click): 0.9 s of wobble, always around the base. */
+  squish() {
+    this.anim("sx", [
+      [1.28, 130, Ease.out], [0.85, 160, Ease.out], [1.1, 150, Ease.out],
+      [0.95, 150, Ease.out], [1.03, 150, Ease.out], [1, 160, Ease.out],
+    ]);
+    this.anim("sy", [
+      [0.72, 130, Ease.out], [1.15, 160, Ease.out], [0.9, 150, Ease.out],
+      [1.05, 150, Ease.out], [0.97, 150, Ease.out], [1, 160, Ease.out],
+    ]);
+  }
+
+  /** The jump of "Claude Code finished": squash, stretch up, fall, squash, settle. */
+  jump() {
+    this.anim("sx", [
+      [1.2, 110, Ease.out], [0.88, 260, Ease.out], [0.96, 240, Ease.easeIn],
+      [1.22, 90, Ease.out], [1, 320, Ease.back],
+    ]);
+    this.anim("sy", [
+      [0.8, 110, Ease.out], [1.14, 260, Ease.out], [1.04, 240, Ease.easeIn],
+      [0.78, 90, Ease.out], [1, 320, Ease.back],
+    ]);
+    this.anim("oy", [
+      [0, 110, Ease.lin], [-0.5, 260, Ease.out], [0, 240, Ease.easeIn],
+      [0, 90, Ease.lin], [0, 320, Ease.lin],
+    ]);
+  }
+
+  /** The file drop's swallow — the slot opens, chews, then closes. */
   gulp() {
     this.slotHTarget = 0.42;
     setTimeout(() => {
@@ -378,39 +392,28 @@ export class BotEngine {
     this.slapTimes = this.slapTimes.filter((s) => t - s < 1.7);
     this.slapTimes.push(t);
     Sound.play("slap");
-    this.squash();
-    this.physVy -= 1.2;
-    this.physVx += Math.random() < 0.5 ? 0.7 : -0.7;
+    this.squish();
     if (this.slapTimes.length >= 3) {
       this.slapTimes = [];
       this.onDizzy?.();
     } else {
-      this.eyeOverride = "line";
-      this.eyeOverrideUntil = t + 0.8;
       setTimeout(() => Sound.play("annoyed"), 60);
     }
   }
 
-  doRoll(durationMs: number, turns: number) {
-    this.roll = 0;
-    this.anim("roll", [[Math.PI * 2 * turns, durationMs, Ease.inOut]], () => { this.roll = 0; });
-  }
-
-  /** Peek wave — the "coucou". Timings from BotEngine.greet(). */
+  /** The greeting at launch: a happy hop and a friendly wobble (Roni has no hands to wave). */
   greet() {
     const t = now();
     const tok = ++this.greetToken;
     this.waveStart = t + 0.45;
     this.waveUntil = t + 1.55;
-    this.physVx += 0.2;
 
-    this.eyeOverride = "happy";
-    this.eyeOverrideUntil = t + 2.0;
+    this.faceOverride = "happy";
+    this.faceOverrideUntil = t + 2.0;
     this.anim("oy", [[-0.06, 220, Ease.out], [0.0, 220, Ease.back]]);
 
     setTimeout(() => {
       if (this.greetToken !== tok) return;
-      this.anim("hands", [[1, 280, Ease.out]]);
       this.anim("sy", [[0.95, 100, Ease.out], [1.0, 260, Ease.back]]);
       this.anim("sx", [[1.04, 100, Ease.out], [1.0, 260, Ease.back]]);
       Sound.play("greet");
@@ -421,21 +424,19 @@ export class BotEngine {
     setTimeout(() => {
       if (this.greetToken !== tok) return;
       this.waveUntil = 0;
-      this.anim("hands", [[0, 200, Ease.inOut]]);
     }, 1550);
     setTimeout(() => {
       if (this.greetToken !== tok) return;
-      this.eyeOverride = "happy";
-      this.eyeOverrideUntil = now() + 0.3;
+      this.faceOverride = "happy";
+      this.faceOverrideUntil = now() + 0.3;
     }, 1750);
   }
 
   interruptGreet() {
-    if (this.hands <= 0.01 && now() >= this.waveUntil) return;
+    if (now() >= this.waveUntil) return;
     this.greetToken++;
     this.waveUntil = 0;
     this.waveStart = 0;
-    this.anim("hands", [[0, 150, Ease.inOut]]);
   }
 
   setPermanentEmote(emote: BotEmoteName | null) {
@@ -444,27 +445,32 @@ export class BotEngine {
       this.miniNextBehavior = now() + 0.8 + Math.random() * 1.7;
       return;
     }
-    this.permanentEye = emote ? EMOTE_EYE[emote] : null;
-    if (this.permanentEye) {
-      this.eyeOverride = this.permanentEye;
-      this.eyeOverrideUntil = Number.POSITIVE_INFINITY;
-    } else if (this.eyeOverrideUntil === Number.POSITIVE_INFINITY) {
-      this.eyeOverride = null;
-      this.eyeOverrideUntil = 0;
-    }
+    this.setPermanentFace(emote ? EMOTE_FACE[emote] : null);
     this.miniNextBehavior = now() + 0.8 + Math.random() * 1.7;
+  }
+
+  /** A face that stays until another is asked for (a mini pill's mood). */
+  setPermanentFace(face: Face | null) {
+    this.permanentFace = face;
+    if (face) {
+      this.faceOverride = face;
+      this.faceOverrideUntil = Number.POSITIVE_INFINITY;
+    } else if (this.faceOverrideUntil === Number.POSITIVE_INFINITY) {
+      this.faceOverride = null;
+      this.faceOverrideUntil = 0;
+    }
   }
 
   triggerEmote(emote: BotEmoteName, duration = 1.8) {
     const t = now();
-    this.eyeOverride = EMOTE_EYE[emote];
-    this.eyeOverrideUntil = t + duration;
+    const face = EMOTE_FACE[emote];
+    if (face) {
+      this.faceOverride = face;
+      this.faceOverrideUntil = t + duration;
+    }
 
     switch (emote) {
       case "love":
-        this.anim("blush", [
-          [1, 300, Ease.out], [1, (duration - 0.6) * 1000, Ease.lin], [0, 300, Ease.inOut],
-        ]);
         this.emit("heart", 4);
         this.anim("oy", [[-0.1, 160, Ease.out], [0, 300, Ease.back]]);
         break;
@@ -477,9 +483,6 @@ export class BotEngine {
         this.anim("tilt", [
           [-0.14, 220, Ease.out], [-0.14, (duration - 0.5) * 1000, Ease.lin], [0, 280, Ease.inOut],
         ]);
-        this.anim("blush", [
-          [0.7, 250, Ease.out], [0.7, (duration - 0.5) * 1000, Ease.lin], [0, 300, Ease.inOut],
-        ]);
         break;
       case "wink":
         this.anim("tilt", [
@@ -487,16 +490,20 @@ export class BotEngine {
         ]);
         break;
       case "yawn":
-        this.anim("sy", [[1.12, 500, Ease.inOut], [1, 500, Ease.inOut]]);
-        this.anim("sx", [[0.94, 500, Ease.inOut], [1, 500, Ease.inOut]]);
-        setTimeout(() => { this.eyeOverride = "closed"; this.emit("z", 2); }, 700);
+        this.faceOverride = null;
+        this.anim("sy", [[1.08, 500, Ease.inOut], [1, 500, Ease.inOut]]);
+        this.anim("sx", [[0.95, 500, Ease.inOut], [1, 500, Ease.inOut]]);
+        setTimeout(() => {
+          this.faceOverride = "sleeping";
+          this.faceOverrideUntil = now() + Math.max(0.5, duration - 0.7);
+          this.emit("z", 2);
+        }, 700);
         break;
       case "happy":
-        this.anim("blush", [[0.6, 200, Ease.out], [0, 600, Ease.inOut]]);
+        this.anim("oy", [[-0.08, 140, Ease.out], [0, 260, Ease.back]]);
         break;
       case "annoyed":
-        this.eyeOverride = "line";
-        this.eyeOverrideUntil = t + 0.8;
+        this.squish();
         setTimeout(() => Sound.play("annoyed"), 60);
         break;
     }
@@ -508,7 +515,7 @@ export class BotEngine {
       this.particles.push({
         type,
         x: (Math.random() - 0.5) * 0.9 + (isZ ? 0.55 : 0),
-        y: -0.7 - Math.random() * 0.2,
+        y: -0.95 - Math.random() * 0.2,
         vx: (Math.random() - 0.5) * 0.35 + (isZ ? 0.18 : 0),
         vy: -(0.45 + Math.random() * 0.35),
         age: -i * 0.14,
@@ -530,56 +537,36 @@ export class BotEngine {
     this.morph = 0;
   }
 
-  /**
-   * Dresses Mochi. Animated: the old outfit leaves (180 ms), the new one drops
-   * in (350 ms) and Mochi does a little squash — BotEngine.setOutfit on macOS.
-   */
-  setOutfit(next: Outfit, animated = true) {
-    if (next === this.outfitTarget) return;
-    this.outfitTarget = next;
-    this.tweens.delete("outfitPresence");
-    this.locks.delete("outfitPresence");
-    const enter = () => {
-      this.outfit = next;
-      this.anim("outfitPresence", [[1, 350, Ease.inOut]], () => this.squash());
-    };
-    if (!animated) {
-      this.outfit = next;
-      this.outfitPresence = next !== "none" ? 1 : 0;
-    } else if (next === "none") {
-      this.anim("outfitPresence", [[0, 180, Ease.inOut]], () => { this.outfit = "none"; });
-    } else if (this.outfit === "none") {
-      this.outfitPresence = 0;
-      enter();
-    } else {
-      this.anim("outfitPresence", [[0, 180, Ease.inOut]], enter);
-    }
-  }
-
-  /** Wearing something visible: the body then turns as one piece when it rolls. */
-  private get rigidRoll(): boolean {
-    return !this.isMini && this.outfit !== "none" && this.outfitPresence > 0.05;
+  /** Mochi's wardrobe is gone: the hat is part of Roni. Kept so the pages that ask keep working. */
+  outfit: Outfit = "none";
+  setOutfit(_next: Outfit, _animated = true) {
+    this.outfit = "none";
   }
 
   /** True while anything is still moving — lets the island stop its RAF loop. */
   get busy(): boolean {
+    // Roni breathes all the time, so a visible Roni is always moving.
+    return true;
+  }
+
+  /**
+   * True when the only thing going on is the breathing and the blinking: the
+   * island may draw those at half the frame rate.
+   */
+  get ambientOnly(): boolean {
+    // A blink is over before the next resting frame: it does not need its own frames.
+    for (const k of this.tweens.keys()) if (k !== "open") return false;
     return (
-      this.tweens.size > 0 ||
-      this.particles.length > 0 ||
-      this.cfg.bounces || this.cfg.scans || this.cfg.breathes || this.cfg.zz || this.cfg.sweat ||
-      this.isMini ||
-      this.isDancing || this.dancingLevel > 0.001 ||
-      Math.abs(this.tgYaw - this.yaw) > 0.002 ||
-      Math.abs(this.tgPitch - this.pitch) > 0.002 ||
-      Math.abs(this.tgTilt - this.tilt) > 0.002 ||
-      Math.abs(this.tgSy - this.sy) > 0.002 ||
-      Math.abs(this.tgSx - this.sx) > 0.002 ||
-      Math.abs(this.tgEs - this.es) > 0.002 ||
-      this.slotH > 0.001 || Math.abs(this.slotHVel) > 0.001 ||
-      Math.abs(this.col[0] - this.colT[0]) > 0.003 ||
-      Math.abs(this.col[1] - this.colT[1]) > 0.003 ||
-      Math.abs(this.col[2] - this.colT[2]) > 0.003 ||
-      (this.outfit !== "none" && (Math.abs(this.physVx) > 0.01 || Math.abs(this.physVy) > 0.01))
+      this.particles.length === 0 &&
+      !this.isDancing && this.dancingLevel < 0.001 &&
+      !this.cfg.tremble && !this.cfg.scans && !this.cfg.sweat && !this.cfg.zz &&
+      !this.speaking && this.state !== "dizzy" &&
+      this.slotH < 0.001 && Math.abs(this.slotHVel) < 0.001 &&
+      // A mini wanders with his eyes all the time; the main one is following the pointer
+      // while he is not settled, and that wants every frame.
+      (this.isMini || (
+        Math.abs(this.tgYaw - this.yaw) < 0.002 && Math.abs(this.tgPitch - this.pitch) < 0.002 &&
+        Math.abs(this.tgTilt - this.tilt) < 0.002))
     );
   }
 
@@ -597,7 +584,6 @@ export class BotEngine {
   update(dt: number) {
     const n = now();
     const nowMs = performance.now();
-
     for (const tw of [...this.tweens.values()]) {
       const k = tw.keys[tw.index];
       const p = Math.min(1, Math.max(0, (nowMs - tw.startMs) / k[1]));
@@ -618,19 +604,16 @@ export class BotEngine {
     let ty = this.lookX * 0.62;
     let tp = this.lookY * 0.5;
 
-    if (this.cfg.look) {
-      ty = ty * 0.35 + this.cfg.look[0] * 0.55;
-      tp = tp * 0.3 + this.cfg.look[1] * 0.5;
-    }
+    if (this.cfg.forward) { ty = 0; tp = 0; }
     if (this.cfg.scans) {
       ty = Math.sin(t * 2.6) * 0.6;
       tp = -0.06;
     }
-    if (this.state === "sleeping") { ty = 0; tp = -0.14; }
+    if (this.state === "sleeping") { ty = 0; tp = 0; }
     if (this.state === "dizzy") { ty = Math.sin(t * 9) * 0.25; }
 
     // Mini bots never follow the mouse — they wander.
-    if (this.isMini && !this.cfg.look && !this.cfg.scans && this.state !== "sleeping" && this.state !== "dizzy") {
+    if (this.isMini && !this.cfg.scans && !this.cfg.forward && this.state !== "sleeping" && this.state !== "dizzy") {
       if (n > this.miniLookNextTime) {
         this.miniLookTarget = {
           x: -0.88 + Math.random() * 1.76,
@@ -648,24 +631,28 @@ export class BotEngine {
 
     if (n > this.waveStart && n < this.waveUntil) {
       const wt = n - this.waveStart;
-      this.tgTilt = -0.06 + Math.sin(2 * Math.PI * 1.2 * wt) * 0.07;
+      this.tgTilt = -0.04 + Math.sin(2 * Math.PI * 1.2 * wt) * 0.07;
     }
 
-    const bounce = this.cfg.bounces ? -Math.abs(Math.sin(t * 5.2)) * 0.07 : 0;
     const kGen = 1 - Math.pow(0.0008, dt);
-    if (!this.locks.has("oy")) this.oy += (bounce - this.oy) * kGen;
+    if (!this.locks.has("oy")) this.oy += (0 - this.oy) * kGen;
 
-    if (this.cfg.breathes) {
-      const amp = this.isMini ? 0.07 : 0.035;
-      this.tgSy = 1 + Math.sin(t * 1.8) * amp;
-      this.tgSx = 1 - Math.sin(t * 1.8) * amp * 0.57;
-    } else if (this.isMini) {
-      this.tgSy = 1 + Math.sin(t * 2.2) * 0.04;
-      this.tgSx = 1 - Math.sin(t * 2.2) * 0.02;
-    } else {
-      this.tgSy = 1;
-      this.tgSx = 1;
+    // A permission waits: a small shake now and then, until the user answers.
+    if (!this.locks.has("ox")) {
+      if (this.cfg.tremble) {
+        const ph = t % 1.8;
+        this.ox = ph < 0.6 ? Math.sin(ph * 38) * 0.035 * (1 - ph / 0.6) : 0;
+      } else {
+        this.ox += (0 - this.ox) * kGen;
+      }
     }
+
+    // Breathing: 1 → (1.025, 0.975) → 1 about every 3 s; slower and deeper asleep.
+    const period = this.cfg.sleepy ? 4.5 : 3;
+    const amp = this.cfg.sleepy ? 0.045 : this.isMini ? 0.05 : 0.025;
+    const breath = (1 - Math.cos((t * Math.PI * 2) / period)) / 2;
+    this.tgSx = 1 + amp * breath;
+    this.tgSy = 1 - amp * breath;
 
     if (this.isMini && n > this.miniNextBehavior) this.doMiniBehaviorLoop();
 
@@ -677,20 +664,25 @@ export class BotEngine {
     if (!this.locks.has("sx")) this.sx += (this.tgSx - this.sx) * kGen;
     if (!this.locks.has("es")) this.es += (this.tgEs - this.es) * kGen;
 
-    this.col = mix3(this.col, this.colT, 1 - Math.pow(0.002, dt));
-
+    // A blink every ~4 s.
     if (n > this.nextBlink) {
-      if (this.state !== "sleeping" && this.state !== "dizzy") {
+      if (this.state !== "sleeping") {
         this.blink();
-        if (Math.random() < 0.22) setTimeout(() => this.blink(), 230);
+        if (Math.random() < 0.15) setTimeout(() => this.blink(), 230);
       }
-      this.nextBlink = n + 2.2 + Math.random() * 3.2;
+      this.nextBlink = n + 3.2 + Math.random() * 1.6;
     }
 
-    if (this.eyeOverride && n > this.eyeOverrideUntil) {
-      this.eyeOverride = this.permanentEye;
-      if (this.permanentEye) this.eyeOverrideUntil = Number.POSITIVE_INFINITY;
+    if (this.faceOverride && n > this.faceOverrideUntil) {
+      this.faceOverride = this.permanentFace;
+      if (this.permanentFace) this.faceOverrideUntil = Number.POSITIVE_INFINITY;
     }
+
+    // The mouth, while he talks: open and shut with the syllables.
+    const talk = this.speaking && CAN_TALK.has(this.state)
+      ? Math.abs(Math.sin(t * 8.5)) * (0.55 + 0.45 * Math.abs(Math.sin(t * 3.1)))
+      : 0;
+    this.mouthLevel += (talk - this.mouthLevel) * (1 - Math.pow(0.0005, dt));
 
     if (n - this.lastAmbient > 1.3) {
       this.lastAmbient = n;
@@ -710,25 +702,6 @@ export class BotEngine {
 
     this.dancingLevel = stepDanceLevel(this.dancingLevel, this.isDancing, dt);
 
-    // Soft-part spring: lags behind head turns, hops and rolls (stiffness 60, damping 9).
-    if (dt > 0) {
-      const yawVel = (this.yaw - this.prevYaw) / dt;
-      const oyVel = (this.oy - this.prevOy) / dt;
-      // A finished roll snaps from 2π·turns back to 0: that jump is not motion.
-      const dRoll = this.roll - this.prevRoll;
-      const rollVel = Math.abs(dRoll) > Math.PI ? 0 : dRoll / dt;
-      const centrifugal = this.rigidRoll ? rollVel * 0.18 : 0;
-      const tDx = Math.max(-1, Math.min(1, -yawVel * 0.35 - this.tilt * 2 + centrifugal));
-      const tDy = Math.max(-1, Math.min(1, oyVel * 0.5));
-      this.physVx += (60 * (tDx - this.physDx) - 9 * this.physVx) * dt;
-      this.physVy += (60 * (tDy - this.physDy) - 9 * this.physVy) * dt;
-      this.physDx += this.physVx * dt;
-      this.physDy += this.physVy * dt;
-    }
-    this.prevYaw = this.yaw;
-    this.prevOy = this.oy;
-    this.prevRoll = this.roll;
-
     this.lastTime = n;
   }
 
@@ -743,16 +716,16 @@ export class BotEngine {
         this.miniNextBehavior = n + 2.2 + Math.random() * 1.2;
         break;
       case "annoyed":
-        if (this.locks.has("yaw")) { this.miniNextBehavior = n + 0.5; return; }
-        this.anim("yaw", [
-          [-0.65, 50, Ease.out], [0.65, 90, Ease.inOut], [-0.5, 80, Ease.inOut],
-          [0.4, 75, Ease.inOut], [-0.2, 70, Ease.inOut], [0, 140, Ease.out],
+        if (this.locks.has("tilt")) { this.miniNextBehavior = n + 0.5; return; }
+        this.anim("tilt", [
+          [-0.2, 50, Ease.out], [0.2, 90, Ease.inOut], [-0.15, 80, Ease.inOut],
+          [0.1, 75, Ease.inOut], [-0.05, 70, Ease.inOut], [0, 140, Ease.out],
         ]);
         this.miniNextBehavior = n + 3.0 + Math.random() * 2.5;
         break;
       case "wink":
-        this.eyeOverride = "wink";
-        this.eyeOverrideUntil = n + 0.55;
+        this.faceOverride = "happy";
+        this.faceOverrideUntil = n + 0.55;
         this.anim("tilt", [[0.13, 100, Ease.out], [0.13, 320, Ease.lin], [0, 200, Ease.inOut]]);
         this.miniNextBehavior = n + 2.2 + Math.random() * 2.0;
         break;
@@ -766,6 +739,22 @@ export class BotEngine {
     }
   }
 
+  // ── Geometry ────────────────────────────────────────────────────────────────
+
+  /**
+   * Where Roni stands in a `W`×`H` canvas. `u` is the pixels of one unit of the
+   * design; `baseY` is the floor under the body — the point he squashes around.
+   */
+  private geometry(W: number, H: number) {
+    const R = W * 0.3;
+    const u = (W * BODY_HALF_W) / BODY_A;
+    const cx = W / 2 + this.ox * R;
+    // The figure (pompom to base) is centred in the canvas, whatever its size.
+    const centre = -((FIGURE_TOP + FIGURE_BOTTOM) / 2);
+    const cy = H / 2 + this.particleOverhang / 2 + this.oy * R + centre * u;
+    return { R, u, cx, cy, baseY: cy + BODY_B * u };
+  }
+
   // ── Dancing ─────────────────────────────────────────────────────────────────
 
   setDancing(dancing: boolean) {
@@ -774,14 +763,14 @@ export class BotEngine {
 
   /**
    * Applies the dance bounce and sway around the bottom of the body. Call it on
-   * a saved context, before draw(), with the same size (BotEngine.applyDance).
+   * a saved context, before draw(), with the same size.
    */
   applyDance(x: CanvasRenderingContext2D, W: number, H: number) {
     if (this.dancingLevel <= 0.001) return;
-    const R = W * 0.3;
-    const px = W / 2 + this.ox * R;
-    const py = H / 2 + this.particleOverhang / 2 + this.oy * R + R * 0.06 + R * 0.88;
-    const d = danceTransform(now(), this.dancingLevel, R);
+    const g = this.geometry(W, H);
+    const px = g.cx;
+    const py = g.baseY;
+    const d = danceTransform(now(), this.dancingLevel, g.R);
     x.translate(px + d.dx, py + d.dy);
     x.rotate(d.rotate);
     x.scale(d.sx, d.sy);
@@ -790,324 +779,91 @@ export class BotEngine {
 
   // ── Draw ────────────────────────────────────────────────────────────────────
 
+  private face(): Face {
+    const n = now();
+    if (this.faceOverride && n < this.faceOverrideUntil) return this.faceOverride;
+    if (this.isDancing && this.dancingLevel > 0.15 && !this.isMini && (this.state === "idle" || this.state === "finished")) {
+      return "happy";
+    }
+    if (this.speaking && CAN_TALK.has(this.state)) return "talking";
+    return this.cfg.face;
+  }
+
+  private pose(): RoniPose {
+    return {
+      face: this.face(),
+      open: this.open,
+      lookX: clamp(this.yaw / 0.62, -1, 1),
+      lookY: clamp(this.pitch / 0.5, -1, 1),
+      mouth: this.mouthLevel,
+      eyeScale: this.es,
+      tint: this.bodyColor,
+      morph: this.morph,
+      time: now() - this.t0,
+    };
+  }
+
   /**
-   * Draws hands, body, blush, eyes, mouth, badge and particles into a canvas of
-   * `w`×`h` CSS pixels (the caller has already applied the DPR transform).
+   * Draws Roni, the badge and the particles into a canvas of `W`×`H` CSS pixels
+   * (the caller has already applied the DPR transform).
    */
   draw(x: CanvasRenderingContext2D, W: number, H: number) {
-    const R = W * 0.3;
-    const rx = R * 1.14;
-    const ry = R * 0.88;
-    const cx = W / 2 + this.ox * R;
-    const cy = H / 2 + this.particleOverhang / 2 + this.oy * R + R * 0.06;
+    const { R, u, cx, cy, baseY } = this.geometry(W, H);
+    const detail = detailFor(300 * u);
 
-    // With an outfit on, a roll turns the whole character — hat included — as
-    // one piece instead of rolling the eyes over the body (BotCanvasView, macOS).
-    x.save();
-    if (this.rigidRoll && Math.abs(this.roll) > 0.001) {
-      x.translate(cx, cy);
-      x.rotate(this.roll);
-      x.translate(-cx, -cy);
-    }
-
-    this.drawHandsBehind(x, R, rx, ry, cx, cy);
-
-    x.save();
-    x.translate(cx, cy);
-    if (this.tilt !== 0) x.rotate(this.tilt);
-    x.scale(this.sx, this.sy);
-
-    const dressed = !this.isMini && this.outfit !== "none";
-    const head = dressed ? makeHead(R, this.yaw, this.pitch, this.physDx, this.physDy) : null;
-    const outfitState = { presence: this.outfitPresence, morph: this.morph };
-    if (head) drawOutfitBehind(x, this.outfit, head, outfitState);
-
-    const body = this.bodyPath(rx, ry, R);
-    this.drawBody(x, body, R, rx, ry);
-
-    const blushVal = Math.max(this.blush, this.tint * 0.5) * (1 - this.morph);
-    if (blushVal > 0.01) {
+    // The floor shadow stays on the floor: it does not tilt or squash with him.
+    if (this.floorShadow && !this.isMini && detail >= 1 && this.morph < 0.3) {
       x.save();
-      x.clip(body);
-      const yOffset = Math.sin(this.yaw) * rx * 0.8;
-      x.fillStyle = `rgba(255,120,150,${0.5 * blushVal})`;
-      for (const sd of [-1, 1]) {
-        x.beginPath();
-        x.ellipse(sd * rx * 0.55 + yOffset, ry * 0.2, R * 0.17, R * 0.1, 0, 0, Math.PI * 2);
-        x.fill();
-      }
+      x.translate(cx, baseY);
+      drawRoniShadow(x, u, this.sx, clamp(-this.oy * 1.2, 0, 1));
       x.restore();
     }
 
-    this.drawEyes(x, body, R, rx, ry);
-    if (this.morph > 0.05) this.drawMouth(x, body, R);
-
-    if (head) drawOutfitFront(x, this.outfit, head, outfitState);
-
-    x.restore();
+    x.save();
+    x.translate(cx, baseY);
+    if (this.tilt !== 0) x.rotate(this.tilt);
+    x.scale(this.sx, this.sy);
+    x.translate(0, -BODY_B * u);
+    drawRoni(x, u, this.pose(), deviceRatio());
+    if (this.morph > 0.05) this.drawSlot(x, u);
     x.restore();
 
     if (this.badge && this.badgeS > 0.01 && this.morph < 0.25) {
-      this.drawBadge(x, this.badge, R, cx, cy);
+      // On the hat's upper-left rim, where it does not hide the face: a point of the
+      // body (the design's units) taken through the same tilt and squash as Roni.
+      const px = -128 * u * this.sx;
+      const py = (-124 * u - BODY_B * u) * this.sy;
+      const c = Math.cos(this.tilt);
+      const s = Math.sin(this.tilt);
+      this.drawBadge(x, this.badge, R, cx + c * px - s * py, baseY + s * px + c * py);
     }
     this.drawParticles(x, R, cx, cy);
   }
 
-  private bodyPath(rx: number, ry: number, R: number): Path2D {
-    const n = 72;
-    const expN = 2.0 / 2.7;
-    const tw = R * 1.0;
-    const th = R * 0.94;
-    const tr = R * 0.42;
-    const p = new Path2D();
+  /** The file drop's slot: a dark pill cut into the box's face, with its rim and lip highlights. */
+  private drawSlot(x: CanvasRenderingContext2D, u: number) {
     const m = this.morph;
-    for (let i = 0; i <= n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      const px0 = rx * (ca >= 0 ? Math.pow(ca, expN) : -Math.pow(-ca, expN));
-      const py0 = ry * (sa >= 0 ? Math.pow(sa, expN) : -Math.pow(-sa, expN));
-      let px = px0;
-      let py = py0;
-      if (m >= 0.005) {
-        const rr = rrPoint(ca, sa, tw, th, tr);
-        px = lerp(px0, rr.x, m);
-        py = lerp(py0, rr.y, m);
-      }
-      if (i === 0) p.moveTo(px, py);
-      else p.lineTo(px, py);
-    }
-    p.closePath();
-    return p;
-  }
-
-  /** How much of the pumpkin's orange shows on the body (it comes and goes with the outfit). */
-  private get pumpkinAlpha(): number {
-    if (this.isMini || this.outfit !== "pumpkin") return 0;
-    return Math.min(1, this.outfitPresence * 2.5) * (1 - this.morph);
-  }
-
-  private drawBody(x: CanvasRenderingContext2D, body: Path2D, R: number, rx: number, ry: number) {
-    const pumpkin = this.pumpkinAlpha;
-    if (this.bodyColor) {
-      // Mini bots: flat solid fill — no gradient, no reflection, no highlight
-      x.fillStyle = rgba(this.bodyColor, 1);
-      x.fill(body);
-      if (pumpkin <= 0.001) return;
-    } else {
-      const g = x.createLinearGradient(rx * 0.7, -ry * 0.85, -rx * 0.8, ry * 0.9);
-      g.addColorStop(0, rgba(BASE_TOP));
-      g.addColorStop(1, rgba(BASE_BOTTOM));
-      x.fillStyle = g;
-      x.fill(body);
-    }
-    x.save();
-    if (pumpkin > 0.001) {
-      const pg = x.createLinearGradient(rx * 0.7, -ry * 0.85, -rx * 0.8, ry * 0.9);
-      pg.addColorStop(0, PUMPKIN_BODY[0]);
-      pg.addColorStop(1, PUMPKIN_BODY[1]);
-      x.globalAlpha = pumpkin;
-      x.fillStyle = pg;
-      x.fill(body);
-      // A flat-coloured body only gets the shading while it is a pumpkin.
-      x.globalAlpha = this.bodyColor ? pumpkin : 1;
-    }
-
-    const effectiveTint = this.tint * (1 - this.morph);
-    if (effectiveTint > 0.01) {
-      const tg = x.createLinearGradient(0, ry, 0, -ry);
-      tg.addColorStop(0, rgba(this.col, 0.72 * effectiveTint));
-      tg.addColorStop(1, rgba(this.col, 0));
-      x.fillStyle = tg;
-      x.fill(body);
-    }
-
-    const sh = x.createRadialGradient(0, 0, R * 0.15, 0, 0, R * 1.25);
-    sh.addColorStop(0, "rgba(0,0,0,0)");
-    sh.addColorStop(0.6, "rgba(0,0,0,0)");
-    sh.addColorStop(1, "rgba(0,0,0,0.2)");
-    x.fillStyle = sh;
-    x.fill(body);
-
-    const hl = x.createRadialGradient(rx * 0.34, -ry * 0.46, 0, rx * 0.34, -ry * 0.46, R * 0.42);
-    hl.addColorStop(0, "rgba(255,255,255,0.55)");
-    hl.addColorStop(1, "rgba(255,255,255,0)");
-    x.fillStyle = hl;
-    x.fill(body);
-    x.restore();
-  }
-
-  private drawEyes(x: CanvasRenderingContext2D, body: Path2D, R: number, rx: number, ry: number) {
-    let shape: EyeShape = this.eyeOverride ?? this.cfg.eye;
-    // Dancing: happy eyes in the calm states.
-    if (this.isDancing && this.dancingLevel > 0.15 && !this.isMini && (this.state === "idle" || this.state === "finished")) {
-      shape = "happy";
-    }
-    if (this.morph > 0.5) {
-      if (this.isChewing) shape = "happy";
-      else if (this.slotHTarget > 0.05 || this.slotH > 0.1) shape = "cup";
-    }
-
-    x.save();
-    x.clip(body);
-    const ink = this.isMini ? MINI_INK : INK;
-    x.fillStyle = ink;
-    x.strokeStyle = ink;
-
-    for (const sd of [-1, 1]) {
-      const eyeYaw = sd * EYE_SP + this.yaw;
-      // Rolling with an outfit on, the whole body turns: the eyes must not roll again.
-      let eyePitch = EYE_P + this.pitch + (this.rigidRoll ? 0 : this.roll);
-      eyePitch = (((eyePitch + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-      const cp = Math.cos(eyePitch);
-      if (Math.cos(eyeYaw) * cp <= 0.04) continue;
-
-      const ex = Math.sin(eyeYaw) * cp * rx;
-      const ey = -Math.sin(eyePitch) * ry + (this.morph > 0 ? ry * 0.14 * this.morph : 0);
-      const fx = lerp(Math.max(0.18, Math.cos(eyeYaw)), 1, this.morph * 0.7);
-      const fy = lerp(Math.max(0.18, cp), 1, this.morph * 0.7);
-      const eyeMult = this.isMini ? 1.9 : 1.0;
-      const ew = R * EYE_W * this.es * eyeMult;
-      const eh = R * EYE_H * this.es * eyeMult;
-
-      x.save();
-      x.translate(ex, ey);
-      x.scale(fx, fy);
-      this.drawEyeShape(x, shape, ew, eh, sd, ink);
-      x.restore();
-    }
-    x.restore();
-  }
-
-  private drawEyeShape(
-    x: CanvasRenderingContext2D, shape: EyeShape,
-    w: number, h: number, sd: number, ink: string,
-  ) {
-    const t = now();
-    switch (shape) {
-      case "wide":
-        this.drawEyeShape(x, "pill", w * 1.16, h * 1.12, sd, ink);
-        break;
-      case "pill": {
-        const hh = Math.max(h * this.open, w * 0.3);
-        roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
-        x.fill();
-        break;
-      }
-      case "dot":
-        x.beginPath();
-        x.arc(0, 0, w * 0.45, 0, Math.PI * 2);
-        x.fill();
-        break;
-      case "line":
-        x.rotate(-sd * 0.2);
-        roundRectPath(x, -w * 0.78, -w * 0.21, w * 1.56, w * 0.42, w * 0.21);
-        x.fill();
-        break;
-      case "flat":
-        roundRectPath(x, -w * 0.72, -w * 0.2, w * 1.44, w * 0.4, w * 0.2);
-        x.fill();
-        break;
-      case "happy":
-        x.lineWidth = w * 0.5;
-        x.lineCap = "round";
-        x.beginPath();
-        x.arc(0, h * 0.18, w * 0.82, Math.PI * 1.12, Math.PI * 1.88);
-        x.stroke();
-        break;
-      case "closed":
-        x.lineWidth = w * 0.36;
-        x.lineCap = "round";
-        x.beginPath();
-        x.arc(0, -h * 0.08, w * 0.78, Math.PI * 0.15, Math.PI * 0.85);
-        x.stroke();
-        break;
-      case "spiral": {
-        x.lineWidth = w * 0.22;
-        x.lineCap = "round";
-        x.beginPath();
-        for (let a = 0; a < 4.4 * Math.PI; a += 0.2) {
-          const r = w * 0.06 + a * w * 0.058;
-          const aa = a + t * 9 * sd;
-          const px = Math.cos(aa) * r;
-          const py = Math.sin(aa) * r;
-          if (a === 0) x.moveTo(px, py);
-          else x.lineTo(px, py);
-        }
-        x.stroke();
-        break;
-      }
-      case "heart":
-        x.fillStyle = "#FF4D6D";
-        heartPath(x, w * 1.2);
-        x.fill();
-        x.fillStyle = ink;
-        break;
-      case "star":
-        x.fillStyle = "#F7B32B";
-        x.rotate(t * 1.5 * sd);
-        starPath(x, w * 1.05, w * 0.46);
-        x.fill();
-        x.fillStyle = ink;
-        break;
-      case "tired":
-        roundRectPath(x, -w / 2, -h * 0.02, w, h * 0.38, w / 2);
-        x.fill();
-        roundRectPath(x, -w * 0.62, -h * 0.1, w * 1.24, w * 0.22, w * 0.11);
-        x.fill();
-        break;
-      case "wink":
-        if (sd < 0) {
-          const hh = Math.max(h * this.open, w * 0.3);
-          roundRectPath(x, -w / 2, -hh / 2, w, hh, Math.min(w / 2, hh / 2));
-          x.fill();
-        } else {
-          x.lineWidth = w * 0.5;
-          x.lineCap = "round";
-          x.beginPath();
-          x.arc(0, h * 0.18, w * 0.82, Math.PI * 1.12, Math.PI * 1.88);
-          x.stroke();
-        }
-        break;
-      case "cup": {
-        // Flat top, rounded bottom corners (U shape) — used while the box is open
-        const hh = Math.max(h * this.open, w * 0.3);
-        const cr = Math.min(w / 2, hh / 2);
-        x.beginPath();
-        x.moveTo(-w / 2, -hh / 2);
-        x.lineTo(w / 2, -hh / 2);
-        x.lineTo(w / 2, hh / 2 - cr);
-        x.quadraticCurveTo(w / 2, hh / 2, w / 2 - cr, hh / 2);
-        x.lineTo(-w / 2 + cr, hh / 2);
-        x.quadraticCurveTo(-w / 2, hh / 2, -w / 2, hh / 2 - cr);
-        x.closePath();
-        x.fill();
-        break;
-      }
-    }
-  }
-
-  /** Mailbox slot: dark pill cut into the box face, with rim and lip highlights. */
-  private drawMouth(x: CanvasRenderingContext2D, body: Path2D, R: number) {
-    const m = this.morph;
+    const R = BODY_A / 1.14;
     const hW = R * 1.8 * m;
     const hH = this.slotH * R * m;
     const hX = -hW / 2;
-    const boxTop = -R * (0.88 + 0.06 * m);
+    const boxTop = -R * (0.88 + 0.06 * m) - 6;
     const hY = boxTop + R * 0.08 * m;
+    const px = 1 / u;
 
     x.save();
-    x.clip(body);
+    x.scale(u, u);
+    x.clip(bodyPath(m));
 
     x.strokeStyle = `rgba(255,255,255,${0.55 * m})`;
-    x.lineWidth = 1;
+    x.lineWidth = px;
     x.lineCap = "round";
     x.beginPath();
-    x.moveTo(-R * 0.9 * m, boxTop + 1);
-    x.lineTo(R * 0.9 * m, boxTop + 1);
+    x.moveTo(-R * 0.9 * m, boxTop + px);
+    x.lineTo(R * 0.9 * m, boxTop + px);
     x.stroke();
 
-    if (hH > 0.8) {
+    if (hH > 0.8 * px) {
       const hR = Math.min(hW / 2, hH / 2);
       const g = x.createLinearGradient(0, hY, 0, hY + hH);
       g.addColorStop(0, "rgb(7,8,10)");
@@ -1115,92 +871,20 @@ export class BotEngine {
       roundRectPath(x, hX, hY, hW, hH, hR);
       x.fillStyle = g;
       x.fill();
-      if (hH > 4) {
-        const lipR = Math.min(hR, (hW - 2) / 2);
+      if (hH > 4 * px) {
+        const lipR = Math.min(hR, (hW - 2 * px) / 2);
         x.strokeStyle = `rgba(255,255,255,${0.28 * m})`;
         x.beginPath();
-        x.moveTo(hX + lipR, hY + hH - 0.5);
-        x.lineTo(hX + hW - lipR, hY + hH - 0.5);
+        x.moveTo(hX + lipR, hY + hH - 0.5 * px);
+        x.lineTo(hX + hW - lipR, hY + hH - 0.5 * px);
         x.stroke();
       }
     }
     x.restore();
   }
 
-  /** Hands sit behind the body — drawn before it, in world coordinates. */
-  private drawHandsBehind(
-    x: CanvasRenderingContext2D,
-    R: number, rx: number, ry: number, cx: number, cy: number,
-  ) {
-    if (this.hands <= 0.01 || this.isMini) return;
-    if (R <= 14) return; // meaningless at compact/peek sizes
-
-    const n = now();
-    const bodyH = 2 * ry;
-    const hew = 0.3 * ry * this.hands;
-    const heh = 0.26 * ry * this.hands;
-    const hwB = rx * this.sx;
-    const hhB = ry * this.sy;
-    const isWaving = n >= this.waveStart && this.waveStart > 0 && n < this.waveUntil;
-
-    for (const sd of [-1, 1]) {
-      let localX: number;
-      let localY: number;
-      let handRot = 0;
-
-      if (sd > 0 && isWaving) {
-        const wt = n - this.waveStart;
-        const rise = Math.min(1, wt / 0.18);
-        const riseEased = 1 - Math.pow(1 - rise, 3);
-        const restX = hwB * 1.08;
-        const restY = hhB * 0.7;
-        const oscX = Math.cos(13 * wt) * 0.06 * bodyH;
-        const oscY = -Math.sin(13 * wt) * 0.14 * bodyH;
-        const waveX = hwB * 1.1 + oscX;
-        const waveY = -hhB * 0.15 + oscY;
-        localX = restX + (waveX - restX) * riseEased;
-        localY = restY + (waveY - restY) * riseEased;
-        handRot = (-0.5 + Math.sin(13 * wt) * 0.35) * riseEased;
-      } else if (sd < 0 && isWaving) {
-        const wt = n - this.waveStart;
-        localX = -hwB * 1.08;
-        localY = hhB * 0.7 + Math.sin(6 * wt) * 0.04 * bodyH;
-      } else {
-        localX = sd * hwB * 1.08;
-        localY = hhB * 0.7;
-      }
-
-      const cosT = Math.cos(this.tilt);
-      const sinT = Math.sin(this.tilt);
-      const worldX = cx + cosT * localX - sinT * localY;
-      const worldY = cy + sinT * localX + cosT * localY;
-
-      x.save();
-      x.translate(worldX, worldY);
-      if (handRot !== 0) x.rotate(handRot);
-      const g = x.createLinearGradient(hew * 0.7, -heh * 0.85, -hew * 0.8, heh * 0.9);
-      if (this.bodyColor) {
-        g.addColorStop(0, rgba(mix3(this.bodyColor, [1, 1, 1], 0.35)));
-        g.addColorStop(1, rgba(this.bodyColor));
-      } else {
-        g.addColorStop(0, rgba(BASE_TOP));
-        g.addColorStop(1, rgba(BASE_BOTTOM));
-      }
-      x.beginPath();
-      x.ellipse(0, 0, hew, heh, 0, 0, Math.PI * 2);
-      x.fillStyle = g;
-      x.fill();
-      x.strokeStyle = "rgba(0,0,0,0.08)";
-      x.lineWidth = 1;
-      x.stroke();
-      x.restore();
-    }
-  }
-
-  private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, cx: number, cy: number) {
+  private drawBadge(x: CanvasRenderingContext2D, badge: Badge, R: number, bx: number, by: number) {
     const bs = this.badgeS * (this.isMini ? 1.25 : 1);
-    const bx = cx - R * 0.72 * this.sx;
-    const by = cy - R * 0.72 * this.sy;
     const t = now();
 
     x.save();
@@ -1236,7 +920,7 @@ export class BotEngine {
         }
       }
     } else if (badge.kind === "arrow") {
-      // The "!" badge's ring and disc, with a white up-arrow: a new Coucou is out.
+      // The "!" badge's ring and disc, with a white up-arrow: a new version is out.
       x.fillStyle = "#000";
       x.beginPath();
       x.arc(0, 0, R * 0.3, 0, Math.PI * 2);
@@ -1338,39 +1022,4 @@ export class BotEngine {
       x.restore();
     }
   }
-}
-
-/** Ray → rounded-rect boundary intersection, for the mailbox morph. */
-function rrPoint(ca: number, sa: number, W: number, H: number, cr: number): { x: number; y: number } {
-  const eps = 1e-6;
-  const kx = ca >= 0 ? 1 : -1;
-  const ky = sa >= 0 ? 1 : -1;
-  const cx = kx * (W - cr);
-  const cy = ky * (H - cr);
-
-  const dot = ca * cx + sa * cy;
-  const disc = dot * dot - (cx * cx + cy * cy - cr * cr);
-  if (disc >= 0) {
-    const t = dot + Math.sqrt(disc);
-    if (t > eps) {
-      const px = ca * t;
-      const py = sa * t;
-      if (Math.abs(px) >= W - cr - eps && Math.abs(py) >= H - cr - eps) return { x: px, y: py };
-    }
-  }
-  if (Math.abs(sa) > eps) {
-    const t = (ky * H) / sa;
-    if (t > eps) {
-      const px = ca * t;
-      if (Math.abs(px) <= W - cr + eps) return { x: px, y: ky * H };
-    }
-  }
-  if (Math.abs(ca) > eps) {
-    const t = (kx * W) / ca;
-    if (t > eps) {
-      const py = sa * t;
-      if (Math.abs(py) <= H - cr + eps) return { x: kx * W, y: py };
-    }
-  }
-  return { x: kx * W, y: ky * H };
 }

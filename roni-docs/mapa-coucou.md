@@ -233,3 +233,26 @@ el protocolo del teléfono (`coucou://`, `_coucou._tcp`) y la frase de voz, que 
 **Si quieres reusar lo de tu Coucou instalado** (no se hace solo, y copiar no borra nada): los modelos de voz pesan cientos de MB; en PowerShell,
 con las dos apps cerradas: `Copy-Item "$env:LOCALAPPDATA\Coucou\Models" "$env:LOCALAPPDATA\Roni\Models" -Recurse`.
 Las claves (Administrador de credenciales) no se copian: Roni empieza sin ninguna, y el token de OpenClaw se pide en la Rebanada 3.
+## 12. Estado después de la Rebanada 2 (el personaje)
+
+Donde las secciones 1 a 9 dicen "Mochi", ahora se dibuja **Roni**. Lo nuevo y lo que cambió de sitio:
+
+| Qué | Dónde |
+|---|---|
+| El dibujo de Roni (cuerpo, gorro, cara, sombra, niveles de detalle, caché de la imagen) | `src/mochi/roni.ts` (nuevo) |
+| Qué hace Roni: caras por estado, gelatina, parpadeo, temblor, salto, boca al hablar, partículas, insignia | `src/mochi/engine.ts` (reescrito, misma API: `BotEngine`) |
+| Tabla estado → cara | `BOT_STATES` en `engine.ts` (ver `decisiones.md`) |
+| Saludo del arranque | `src/mochi/greeting.ts` (sin manos; balanceo) |
+| Caja de archivos (cuando arrastras un archivo) | `src/upload/canvas.ts` (`drawMochi` dibuja a Roni; el cuerpo se vuelve caja con `morph`) |
+| Encabezado de cada sección y logo del menú | `src/hub/hero.ts` (`hero()` pone una sola Roni; `liveMochi()` es el logo) |
+| Mini-Ronis de las píldoras | `src/mochi/minibots.ts` (el color del servicio tiñe el cuerpo) |
+| Boca que habla (chat) | `State.talking` / `State.talkFor()` en `src/core/state.ts`, activado en `src/views/chat.ts` |
+| Boca que habla (voz) | `src/pill/main.ts` (`mochi.speaking`) |
+| Bucle de la isla que descansa | `Island.frame()` en `src/island/island.ts` (`resting`) y `BotEngine.ambientOnly` |
+| Guardarropa apagado | `WARDROBE_ENABLED = false` en `island.ts`; sin entrada en `tray.rs` ni en `main.ts`; `wardrobeToggle` no disponible en `shortcuts.rs` / `core/shortcuts.ts` |
+| Ícono | `src-tauri/icons/` (desde `roni-docs/diseno/roni.svg`) |
+| Vista previa de todas las caras y tamaños | `dev/roni-preview.html` |
+| Pruebas | `tests/roni.test.mjs` (nuevo) |
+
+Sigue sin usarse (se puede borrar más adelante): `src/mochi/outfits.ts`, `src/mochi/wardrobe.ts`, `src/views/wardrobe.ts` y la preferencia `mochiOutfit`.
+Los nombres internos en minúscula (`src/mochi/`, `mochiOutfit`, `desktop_mochi_*`) no se cambiaron.

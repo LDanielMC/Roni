@@ -72,7 +72,8 @@ pub const ACTIONS: &[ActionDef] = &[
     action("prevPill", "Ctrl+Alt+Shift+Left", true, true),
     action("muteToggle", "Ctrl+Alt+Shift+S", true, true),
     action("desktopToggle", "Ctrl+Alt+Shift+D", true, true),
-    action("wardrobeToggle", "Ctrl+Alt+Shift+G", true, true),
+    // Roni has no wardrobe: the id and its keys stay reserved, as for the Mac-only actions.
+    action("wardrobeToggle", "Ctrl+Alt+Shift+G", true, false),
 ];
 
 pub fn find(id: &str) -> Option<&'static ActionDef> {
@@ -736,10 +737,11 @@ mod tests {
     }
 
     #[test]
-    fn the_action_not_ported_yet_is_reserved_not_registered() {
+    fn the_actions_roni_does_not_have_are_reserved_not_registered() {
         let plan = plan(&Bindings::new(), never);
         for (def, outcome) in plan {
-            let reserved = def.id == "attachFrontWindow";
+            // No attaching a window yet, and no wardrobe (Roni's hat is his own).
+            let reserved = def.id == "attachFrontWindow" || def.id == "wardrobeToggle";
             assert_eq!(def.ported, !reserved);
             match outcome {
                 Ok(_) => assert!(def.ported && def.enabled_by_default, "{}", def.id),
@@ -855,7 +857,7 @@ mod tests {
     fn the_command_line_names_an_action() {
         let args = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(from_args(&args(&["roni", "--shortcut", "openChat"])), Some("openChat"));
-        assert_eq!(from_args(&args(&["roni", "--shortcut", "wardrobeToggle"])), Some("wardrobeToggle"));
+        assert_eq!(from_args(&args(&["roni", "--shortcut", "wardrobeToggle"])), None, "there is no wardrobe");
         assert_eq!(from_args(&args(&["roni", "--shortcut"])), None);
         assert_eq!(from_args(&args(&["roni", "--shortcut", "rm -rf"])), None);
         assert_eq!(from_args(&args(&["roni", "--shortcut", "desktopToggle"])), Some("desktopToggle"));

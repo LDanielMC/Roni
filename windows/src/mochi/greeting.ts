@@ -1,9 +1,10 @@
-// The launch "coucou" (greeting v2) — port of GreetingCanvasView.swift.
-// Mochi drops into the island, bounces, slides to the side and waves hello with
-// a quick little hand, then comes back and settles in the compact island.
+// The launch greeting (greeting v2) — port of GreetingCanvasView.swift.
+// Roni drops into the island, bounces, slides to the side and says hello with a
+// happy little rock (he has no hands), then comes back and settles in the compact island.
 // Everything is laid out in the same 640×150 reference space as on macOS.
 
 import { closeCurve } from "../core/anim";
+import { NEUTRAL_POSE, deviceRatio, drawRoni, type Face, type RGB } from "./roni";
 import { Sound } from "../core/sound";
 import { COMPACT_W, NOTCH_H, NOTCH_W } from "../core/layout";
 
@@ -37,9 +38,16 @@ export const GREETING_W = 640;
 export const GREETING_H = 150;
 const C0 = { x: 320, y: 90 };
 const HB = 58;
-export const ASP = 1.34;
+/** Roni's body: 300 wide for 284 tall (roni-docs/diseno/roni.svg). */
+export const ASP = 300 / 284;
 const EAR_X = 40;
-const EAR_HB = 17;
+/**
+ * Roni's body height in the compact island: his body is 0.684 of the engine's canvas wide
+ * (the canvas being the bot's diameter over 0.6) and 300 wide for 284 tall. The figure
+ * (pompom to base) is centred in the canvas, which puts the body's centre 15.5 units lower.
+ */
+const EAR_HB = (0.684 / 0.6) * (284 / 300);
+const EAR_DROP = 15.5 / 284;
 const CARD = { x: 10, y: 36, w: 620, h: 104 };
 const CARD_R = 20;
 
@@ -78,7 +86,8 @@ export interface Pose {
   hb: number; x: number; y: number; sx: number; sy: number; tilt: number;
   eye: EyeType; open: number; eyeRoll: number;
   lookX: number; lookY: number;
-  handL: number; handR: number; wave: number;
+  /** Seconds into the hello (−1 outside it). */
+  wave: number;
   badge: number; tint: number; halo: number; haloBlue: number; minis: number; fx: number;
   header: number; card: number;
   iw: number; ih: number;
@@ -178,20 +187,17 @@ function greetPose(t: number): Pose {
     lookY = lerp(0.6, 0, k);
   }
 
-  // Hands
-  const handL = t < T.tuck0
-    ? E.back(seg(t, T.pop0, T.pop0 + 0.14))
-    : 1 - E.easeIn(seg(t, T.tuck0, T.tuck1 - 0.03));
-  const handR = t < T.tuck0
-    ? E.back(seg(t, T.pop0 + 0.04, T.pop0 + 0.18))
-    : 1 - E.easeIn(seg(t, T.tuck0 + 0.03, T.tuck1));
+  // The hello: a friendly rock around his base, in phase with the bob.
   const wave = t >= T.pop1 && t < T.tuck0 ? t - T.pop1 : -1;
+  const rockIn = wave >= 0 ? clamp(wave / 0.08, 0, 1) : 0;
+  const rockOut = wave >= 0 ? 1 - clamp((wave - (T.tuck0 - T.pop1)) / (T.tuck1 - T.tuck0), 0, 1) : 0;
+  const tilt = wave >= 0 ? Math.sin(wave * 2 * Math.PI * 2.5) * 0.09 * rockIn * rockOut : 0;
 
   return {
-    hb, x, y, sx, sy, tilt: 0,
+    hb, x, y, sx, sy, tilt,
     eye, open, eyeRoll: 0,
     lookX, lookY,
-    handL, handR, wave,
+    wave,
     badge: E.back(seg(t, T.badge, T.badge + 0.28)),
     tint: 0.6 * E.inOut(seg(t, T.tint0, T.tint1)),
     halo: E.out(seg(t, 0.3, 0.7)),
@@ -206,13 +212,13 @@ function greetPose(t: number): Pose {
 
 function smallPose(): Pose {
   return {
-    hb: (EAR_HB * COMPACT.botDiameter) / 20,
+    hb: EAR_HB * COMPACT.botDiameter,
     x: GREETING_W / 2 - COMPACT.width / 2 + EAR_X,
-    y: COMPACT.botCenterY,
+    y: COMPACT.botCenterY + EAR_DROP * EAR_HB * COMPACT.botDiameter,
     sx: 1, sy: 1, tilt: 0,
     eye: "dot", open: 1, eyeRoll: 0,
     lookX: 0, lookY: 0,
-    handL: 0, handR: 0, wave: -1,
+    wave: -1,
     badge: 1, tint: 0.6, halo: 0.6, haloBlue: 1,
     minis: 1, fx: 1,
     header: 0, card: 0,
@@ -242,8 +248,6 @@ export function greetingPose(t: number, tc = Number.POSITIVE_INFINITY): Pose {
   p.haloBlue = lerp(a.haloBlue, b.haloBlue, e);
   p.header = a.header * (1 - seg(t, tc, tc + 0.1));
   p.card = a.card * (1 - seg(t, tc, tc + 0.18));
-  p.handL = a.handL * (1 - seg(t, tc, tc + 0.15));
-  p.handR = a.handR * (1 - seg(t, tc, tc + 0.15));
   p.tilt = a.tilt * (1 - e);
   p.sx = lerp(a.sx, 1, e);
   p.sy = lerp(a.sy, 1, e);
@@ -258,67 +262,22 @@ export function greetingPose(t: number, tc = Number.POSITIVE_INFINITY): Pose {
   return p;
 }
 
-/** Where the waving (left, round) hand is, in body space before the body's scale. */
-function handLPos(hw: number, hh: number, p: Pose) {
-  const k = p.handL;
-  const hb = hh * 2;
-  const r = hb * 0.15 * k;
-  const x = lerp(-hw * 0.35, -hw - hb * 0.22, k);
-  let y = lerp(hh * 0.85, hh * 0.62, k);
-  if (p.wave >= 0) {
-    // ramp in 0.08 s after pop1, ramp out over the tuck
-    const w = p.wave;
-    const rampIn = clamp(w / 0.08, 0, 1);
-    const rampOut = 1 - clamp((w - (T.tuck0 - T.pop1)) / (T.tuck1 - T.tuck0), 0, 1);
-    y += Math.sin(w * 2 * Math.PI * 5) * hb * 0.14 * rampIn * rampOut;
-  }
-  return { x, y, r };
-}
-
-/** The resting (right, capsule) hand. */
-function handRPos(hw: number, hh: number, p: Pose) {
-  const k = p.handR;
-  const hb = hh * 2;
-  return {
-    x: lerp(hw * 0.35, hw + hb * 0.2, k),
-    y: lerp(hh * 0.85, hh * 0.2, k),
-    L: hb * 0.4 * k,
-    T: hb * 0.22 * k,
-    // breathing rotation ±0.04 rad at 2.5 Hz while the other hand waves
-    ang: p.wave >= 0 ? -0.61 + Math.sin(p.wave * 2 * Math.PI * 2.5) * 0.04 : -0.61,
-  };
-}
-
 /**
- * Bounding box of Mochi's body and hands in the 640×150 space — what must stay
- * inside the island so nothing of him is cut off.
+ * Bounding box of Roni in the 640×150 space — what must stay inside the island
+ * so nothing of him is cut off: the body, the hat (a little wider than the body,
+ * with its pompom above it) and the rock around his base.
  */
 export function mochiBounds(p: Pose): { left: number; right: number; top: number; bottom: number } | null {
   const hh = p.hb / 2;
   const hw = hh * ASP;
   if (hh <= 0.4) return null;
-  let left = -hw;
-  let right = hw;
-  let top = -hh;
-  let bottom = hh;
-  if (p.handL > 0.01) {
-    const l = handLPos(hw, hh, p);
-    left = Math.min(left, l.x - l.r);
-    top = Math.min(top, l.y - l.r);
-    bottom = Math.max(bottom, l.y + l.r);
-  }
-  if (p.handR > 0.01) {
-    const r = handRPos(hw, hh, p);
-    const ext = r.L / 2 + r.T / 2;
-    right = Math.max(right, r.x + ext);
-    top = Math.min(top, r.y - ext);
-    bottom = Math.max(bottom, r.y + ext);
-  }
+  // The hat overhangs the body by 4 %; the pompom tops the figure 22 % of a half-height above it.
+  const side = hw * 1.04 + Math.abs(Math.sin(p.tilt)) * hh * 2;
   return {
-    left: p.x + left * p.sx,
-    right: p.x + right * p.sx,
-    top: p.y + top * p.sy,
-    bottom: p.y + bottom * p.sy,
+    left: p.x - side * p.sx,
+    right: p.x + side * p.sx,
+    top: p.y - hh * 1.22 * p.sy,
+    bottom: p.y + hh * p.sy,
   };
 }
 
@@ -365,67 +324,9 @@ function rr(x: CanvasRenderingContext2D, X: number, Y: number, W: number, H: num
   x.closePath();
 }
 
-function mochiPath(hw: number, hh: number): Path2D {
-  const n = 3.2;
-  const p = new Path2D();
-  const steps = 96;
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * 2 * Math.PI;
-    const ca = Math.cos(a);
-    const sa = Math.sin(a);
-    const px = hw * (ca < 0 ? -1 : 1) * Math.pow(Math.abs(ca), 2 / n);
-    const py = hh * (sa < 0 ? -1 : 1) * Math.pow(Math.abs(sa), 2 / n);
-    if (i === 0) p.moveTo(px, py);
-    else p.lineTo(px, py);
-  }
-  p.closePath();
-  return p;
-}
+const EYE_FACE: Record<EyeType, Face> = { dot: "calm", happy: "happy", content: "sleeping" };
 
-/** White body gradient. A canvas gradient pads past its ends, so the corners are never left unpainted. */
-function whiteFill(
-  x: CanvasRenderingContext2D, path: Path2D,
-  x0: number, y0: number, x1: number, y1: number,
-) {
-  const g = x.createLinearGradient(x0, y0, x1, y1);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
-  x.fillStyle = g;
-  x.fill(path);
-}
-
-function drawHandL(x: CanvasRenderingContext2D, hw: number, hh: number, p: Pose) {
-  if (p.handL <= 0.01) return;
-  const { x: hx, y: hy, r } = handLPos(hw, hh, p);
-  x.save();
-  x.translate(hx, hy);
-  const circ = new Path2D();
-  circ.ellipse(0, 0, r, r, 0, 0, Math.PI * 2);
-  whiteFill(x, circ, r, -r, -r, r);
-  x.strokeStyle = "rgba(0,0,0,0.08)";
-  x.lineWidth = 0.8;
-  x.stroke(circ);
-  x.restore();
-}
-
-function drawHandR(x: CanvasRenderingContext2D, hw: number, hh: number, p: Pose) {
-  if (p.handR <= 0.01) return;
-  const h = handRPos(hw, hh, p);
-  x.save();
-  x.translate(h.x, h.y);
-  x.rotate(h.ang);
-  rr(x, -h.L / 2, -h.T / 2, h.L, h.T, h.T / 2);
-  const g = x.createLinearGradient(h.L / 2, -h.T / 2, -h.L / 2, h.T / 2);
-  g.addColorStop(0, "rgb(251,251,252)");
-  g.addColorStop(1, "rgb(231,233,236)");
-  x.fillStyle = g;
-  x.fill();
-  x.strokeStyle = "rgba(0,0,0,0.08)";
-  x.lineWidth = 0.8;
-  x.stroke();
-  x.restore();
-}
-
+/** Roni, `p.hb` tall, his base as the pivot of the squash and the rock. */
 function drawMochi(x: CanvasRenderingContext2D, p: Pose) {
   const hh = p.hb / 2;
   const hw = hh * ASP;
@@ -448,64 +349,26 @@ function drawMochi(x: CanvasRenderingContext2D, p: Pose) {
     }
   }
 
+  const u = p.hb / 284;
   x.save();
-  x.translate(p.x, p.y);
+  x.translate(p.x, p.y + hh);
   x.rotate(p.tilt);
   x.scale(p.sx, p.sy);
+  x.translate(0, -hh);
 
-  drawHandL(x, hw, hh, p);
-  drawHandR(x, hw, hh, p);
+  drawRoni(x, u, {
+    ...NEUTRAL_POSE,
+    face: EYE_FACE[p.eye],
+    open: p.open,
+    lookX: p.lookX,
+    lookY: -p.lookY,
+  }, deviceRatio());
 
-  const body = mochiPath(hw, hh);
-  whiteFill(x, body, hw * 0.6, -hh, -hw * 0.6, hh);
-
-  if (p.tint > 0) {
-    const g = x.createLinearGradient(0, hh, 0, -hh * 0.1);
-    g.addColorStop(0, `rgba(127,180,234,${p.tint})`);
-    g.addColorStop(1, "rgba(127,180,234,0)");
-    x.fillStyle = g;
-    x.fill(body);
-  }
-
-  // Eyes
-  x.save();
-  x.clip(body);
-  x.fillStyle = "#16171A";
-  x.strokeStyle = "#16171A";
-  const er = p.hb * 0.06;
-  const sp = p.hb * 0.19;
-  const lx = p.lookX * hw * 0.42;
-  const ly = p.lookY * hh * 0.28 + hh * 0.12 + p.eyeRoll * hh * 1.25;
-  for (const sd of [-1, 1]) {
-    x.save();
-    x.translate(sd * sp + lx, ly);
-    if (p.eye === "happy") {
-      x.lineWidth = er * 0.95;
-      x.lineCap = "round";
-      x.beginPath();
-      x.arc(0, er * 0.6, er * 1.25, Math.PI * 1.15, Math.PI * 1.85);
-      x.stroke();
-    } else if (p.eye === "content") {
-      x.lineWidth = er * 0.95;
-      x.lineCap = "round";
-      x.beginPath();
-      x.arc(0, -er * 0.5, er * 1.25, Math.PI * 0.15, Math.PI * 0.85);
-      x.stroke();
-    } else {
-      x.scale(1, Math.max(0.12, p.open));
-      x.beginPath();
-      x.arc(0, 0, er, 0, Math.PI * 2);
-      x.fill();
-    }
-    x.restore();
-  }
-  x.restore();
-
-  // Activity badge
+  // Activity badge, on the hat's upper-left rim
   if (p.badge > 0.01) {
     const br = hh * 0.3;
     x.save();
-    x.translate(-hw * 0.78, -hh * 0.72);
+    x.translate(-128 * u, -124 * u);
     x.scale(p.badge, p.badge);
     x.fillStyle = "#000";
     x.beginPath();
@@ -563,7 +426,7 @@ function drawParticles(x: CanvasRenderingContext2D, t: number, p: Pose) {
   }
 }
 
-const MINI_COLORS = ["#E86A6A", "#3E86E0", "#EFAE5A", "#8C73F2"];
+const MINI_COLORS: RGB[] = [[0.91, 0.416, 0.416], [0.243, 0.525, 0.878], [0.937, 0.682, 0.353], [0.549, 0.451, 0.949]];
 
 function drawMinis(x: CanvasRenderingContext2D, alpha: number) {
   if (alpha <= 0.01) return;
@@ -576,8 +439,9 @@ function drawMinis(x: CanvasRenderingContext2D, alpha: number) {
     x.translate(cx + dx, cy + dy);
     const scale = alpha * COMPACT.miniGridScale;
     x.scale(scale, scale);
-    x.fillStyle = MINI_COLORS[i];
-    x.fill(mochiPath(5.3, 4));
+    // A mini Roni: 10 px of body, in the colour of the pill he stands for.
+    x.translate(0, 0.5);
+    drawRoni(x, 10.6 / 300, { ...NEUTRAL_POSE, tint: MINI_COLORS[i] }, deviceRatio());
     x.restore();
   });
 }
