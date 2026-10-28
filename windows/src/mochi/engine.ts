@@ -641,7 +641,7 @@ export class BotEngine {
     if (!this.locks.has("ox")) {
       if (this.cfg.tremble) {
         const ph = t % 1.8;
-        this.ox = ph < 0.6 ? Math.sin(ph * 38) * 0.035 * (1 - ph / 0.6) : 0;
+        this.ox = ph < 0.6 ? Math.sin(ph * 38) * 0.09 * (1 - ph / 0.6) : 0;
       } else {
         this.ox += (0 - this.ox) * kGen;
       }

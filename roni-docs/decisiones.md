@@ -58,3 +58,4 @@
   Roni completo (isla, mini-Ronis y Roni de escritorio) gasta ~0.2 % y 0 % de GPU, como el Coucou original (~0.14 %); con la ventana grande abierta gasta ~5.7 % (el original midió ~2.3 %, pero en otra sesión).
 - **Íconos:** regenerados con `tauri icon` desde el diseño bombón (sin sombra del piso ni metadatos C2PA del SVG).
 - **Herramienta:** `windows/dev/roni-preview.html` (con `npm run dev`) muestra todas las caras a todos los tamaños; no se empaqueta.
+- **Temblor del permiso pendiente más visible:** probando en vivo (eventos simulados por el pipe, medido en capturas) el temblor original de 0.035 radios de cuerpo se movía solo ~1 px en la tarjeta del permiso y no se notaba. Subió a 0.09: ≈ ±2.3 px en la tarjeta del permiso (Roni de 56 px, que se abre sola al llegar el permiso), ≈ ±0.8 px en la isla compacta y ≈ ±1 px en los mini-Ronis de las píldoras. Tiembla en ráfagas de 0.6 s cada 1.8 s; cada ráfaga se va apagando y se repite hasta que se responde.
