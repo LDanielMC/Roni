@@ -5,6 +5,9 @@
 import { PROVIDERS, type ProviderDef } from "./providers";
 import type { Settings } from "./state";
 
+/** What a phone may chat with: Rust's list (phone_link/chat_backend.rs), which has no Roni yet. */
+const PHONE_PROVIDERS = PROVIDERS.filter((p) => p.id !== "roni");
+
 /** Most models the user can allow; Rust caps the list at the same number. */
 export const MAX_ALLOWED = 50;
 
@@ -16,7 +19,7 @@ export function modelId(provider: string, model: string): string {
 export function providerOf(id: string): string | null {
   const at = id.indexOf("/");
   const provider = at > 0 ? id.slice(0, at) : "";
-  return PROVIDERS.some((p) => p.id === provider) && id.length > at + 1 ? provider : null;
+  return PHONE_PROVIDERS.some((p) => p.id === provider) && id.length > at + 1 ? provider : null;
 }
 
 /** `allowed` with `id` ticked or unticked: no duplicates, order kept, capped. */
@@ -31,7 +34,7 @@ export function toggleModel(allowed: readonly string[], id: string, on: boolean)
  * set. `hasKey` maps a provider id to "its key is saved".
  */
 export function usableProviders(settings: Settings, hasKey: Readonly<Record<string, boolean>>): ProviderDef[] {
-  return PROVIDERS.filter((p) => (p.key ? hasKey[p.id] === true : p.urlField !== null && settings[p.urlField] !== ""));
+  return PHONE_PROVIDERS.filter((p) => (p.key ? hasKey[p.id] === true : p.urlField !== null && settings[p.urlField] !== ""));
 }
 
 /** The ids of `allowed` that belong to `provider`, without the provider part. */

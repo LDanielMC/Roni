@@ -28,7 +28,7 @@ import { SPOTIFY_ID } from "../core/spotify";
 import { buildWhatsAppCard } from "./whatsapp";
 import { WHATSAPP_ID } from "../core/whatsapp";
 import type { Outfit, OutfitSelection } from "../mochi/wardrobe";
-import { language, t, tl, type Msg } from "../i18n/i18n";
+import { N_, language, t, tl, type Msg } from "../i18n/i18n";
 import type { ViewCommand } from "../island/shortcuts";
 
 export interface ViewActions {
@@ -491,6 +491,9 @@ function lighten(hex: string, amount: number): string {
 
 // ── Empty ─────────────────────────────────────────────────────────────────────
 
+const ASK_RONI = N_("Ask Roni");
+const ASK_CLAUDE = N_("Ask Claude");
+
 function buildEmpty(actions: ViewActions): ViewHost {
   const body = h(
     "div",
@@ -502,9 +505,23 @@ function buildEmpty(actions: ViewActions): ViewHost {
       h("div", { class: "sub", text: tl("Drop a file or window, or ask me anything.") }),
     ),
     h("div", { class: "grow" }),
-    btn(tl("Ask Claude"), "primary", () => actions.setView("prompt")),
   );
-  return { el: h("div", { class: "view" }, card(null, body)), sync() {} };
+  // The chat is Roni's unless Settings → Chat → Advanced picked another provider.
+  let asking = "";
+  const host: ViewHost = {
+    el: h("div", { class: "view" }, card(null, body)),
+    sync() {
+      const who = State.settings.chatProvider === "roni" ? ASK_RONI : ASK_CLAUDE;
+      if (who === asking) return;
+      asking = who;
+      body.querySelector(".ask")?.remove();
+      const ask = btn(tl(who), "primary", () => actions.setView("prompt"));
+      ask.classList.add("ask");
+      body.append(ask);
+    },
+  };
+  host.sync();
+  return host;
 }
 
 // ── Approval ──────────────────────────────────────────────────────────────────

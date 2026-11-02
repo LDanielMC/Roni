@@ -4,8 +4,8 @@
 // island's settings are drawn here, one Notch page at a time.
 
 import "./settings.css";
-import { Bridge, onEvent, type HookPreview, type HookStatus, type ShortcutsReport } from "../core/bridge";
-import { CUSTOM_SERVER_KEY, providerDef, urlExposure } from "../core/providers";
+import { Bridge, onEvent, type HookPreview, type HookStatus, type RoniStatus, type ShortcutsReport } from "../core/bridge";
+import { CUSTOM_SERVER_KEY, RONI_TOKEN_KEY, providerDef, urlExposure } from "../core/providers";
 import {
   ISLAND_SHORTCUTS, SHORTCUTS, SHORTCUT_TEXT, activeKeys, displayKeys, duplicates, effective,
   recordPress, type Binding,
@@ -494,6 +494,135 @@ function activePillsSection(connected: Record<string, boolean>): HTMLElement {
   );
 }
 
+// ── Roni (the chat's gateway) ─────────────────────────────────────────────────
+
+const RONI_STRINGS = {
+  get hint() {
+    return t("Roni's brain lives in OpenClaw on this computer. Paste the gateway token once: it stays in the {store}, never in a file.", { store: KEY_STORE });
+  },
+  get address() { return t("Address"); },
+  get token() { return t("Gateway token"); },
+  get saveCheck() { return t("Save and check"); },
+  get checking() { return t("Checking…"); },
+  get connected() { return t("Connected to Roni."); },
+  get help() { return t("Get it in the Ubuntu (WSL) terminal: openclaw gateway auth-token --show"); },
+  get advancedTitle() { return t("Advanced: other chat providers"); },
+  get advancedHint() {
+    return t("Roni is the chat by default. Here you can still use Claude, Google AI, OpenAI, OpenRouter or a model server you run yourself.");
+  },
+  get showOthers() { return t("Show them in the chat's picker"); },
+};
+
+/** Settings → Chat → Roni: where his gateway is, its token, and whether it answers. */
+function roniSection(tokenStored: boolean): HTMLElement {
+  let stored = tokenStored;
+  const address = h("input", {
+    type: "text",
+    value: settings.roniUrl,
+    placeholder: DEFAULT_SETTINGS.roniUrl,
+    spellcheck: "false",
+    autocomplete: "off",
+    style: "flex:1 1 auto;min-width:0",
+  }) as HTMLInputElement;
+  const token = h("input", {
+    type: "password",
+    placeholder: stored ? CHAT_STRINGS.stored : RONI_STRINGS.token,
+    autocomplete: "off",
+    spellcheck: "false",
+    style: "flex:1 1 auto;min-width:0",
+  }) as HTMLInputElement;
+  const dot = statusDot(false);
+  const save_ = h("button", { class: "primary", text: RONI_STRINGS.saveCheck }) as HTMLButtonElement;
+  const remove = h("button", { class: "danger", text: CHAT_STRINGS.remove }) as HTMLButtonElement;
+  const feedback = h("div", {});
+
+  function show(status: RoniStatus) {
+    clear(feedback);
+    const ok = status.state === "ok";
+    dot.style.background = ok ? "#22c55e" : status.state === "no-token" ? "#f4505e" : "#f5a524";
+    feedback.append(h("div", { class: ok ? "notice ok" : "notice err", text: ok ? RONI_STRINGS.connected : status.message }));
+    stored = status.state !== "no-token" && status.state !== "bad-address" ? true : stored;
+    token.placeholder = stored ? CHAT_STRINGS.stored : RONI_STRINGS.token;
+    remove.style.display = stored ? "" : "none";
+  }
+
+  async function check(withToken: boolean) {
+    save_.disabled = true;
+    clear(feedback);
+    feedback.append(h("div", { class: "hint", text: RONI_STRINGS.checking }));
+    try {
+      const status = await Bridge.roniConnect(address.value, withToken ? token.value.trim() : "");
+      token.value = ""; // it is in the credential store now, not here
+      if (status.state !== "bad-address") {
+        settings.roniUrl = status.url;
+        address.value = status.url;
+        await save();
+      }
+      show(status);
+    } catch (err) {
+      clear(feedback);
+      feedback.append(h("div", { class: "notice err", text: String(err).replace(/^Error:\s*/, "") }));
+    }
+    save_.disabled = false;
+  }
+
+  save_.addEventListener("click", () => void check(true));
+  for (const input of [address, token]) {
+    input.addEventListener("keydown", (e) => {
+      if ((e as KeyboardEvent).key === "Enter") void check(true);
+    });
+  }
+  remove.addEventListener("click", async () => {
+    try {
+      await Bridge.secretClear(RONI_TOKEN_KEY);
+      stored = false;
+      token.placeholder = RONI_STRINGS.token;
+      remove.style.display = "none";
+      show(await Bridge.roniStatus());
+    } catch (err) {
+      clear(feedback);
+      feedback.append(h("div", { class: "notice err", text: t("Could not remove: {error}", { error: String(err) }) }));
+    }
+  });
+  remove.style.display = stored ? "" : "none";
+
+  // What the gateway says now, without sending anything: the token is only tried against it.
+  void Bridge.roniStatus().then((status) => status && show(status)).catch(() => {});
+
+  return h(
+    "section",
+    {},
+    h("h2", {}, h("i", { class: "dot", style: `background:${providerDef("roni").accent};margin-right:8px` }), h("span", { text: "Roni" })),
+    h("div", { class: "hint", text: RONI_STRINGS.hint }),
+    h("div", { class: "row" }, h("label", { text: RONI_STRINGS.address }), address),
+    h("div", { class: "row" }, h("label", { text: RONI_STRINGS.token }), token, save_, remove, dot),
+    h("div", { class: "hint", style: "margin:-4px 0 0 144px", text: RONI_STRINGS.help }),
+    feedback,
+  );
+}
+
+/** The providers of before Roni, folded away: still there, out of the way. */
+function advancedChatSection(...inner: HTMLElement[]): HTMLElement {
+  return h(
+    "details",
+    { class: "advanced" },
+    h("summary", { text: RONI_STRINGS.advancedTitle }),
+    h(
+      "div",
+      { class: "advanced-body" },
+      h("div", { class: "hint", text: RONI_STRINGS.advancedHint }),
+      h("div", { class: "row" },
+        h("label", { text: RONI_STRINGS.showOthers }),
+        toggle(settings.otherProvidersInChat, (on) => {
+          settings.otherProvidersInChat = on;
+          void save();
+        }),
+      ),
+      ...inner,
+    ),
+  );
+}
+
 // ── Chat providers section ────────────────────────────────────────────────────
 
 const CHAT_STRINGS = {
@@ -669,7 +798,7 @@ function localSection(customKey: boolean): HTMLElement {
       const disconnect = h("button", { class: "danger", text: CHAT_STRINGS.disconnect });
       disconnect.addEventListener("click", async () => {
         settings[field] = "";
-        if (settings.chatProvider === id) settings.chatProvider = "anthropic";
+        if (settings.chatProvider === id) settings.chatProvider = "roni";
         if (id === "custom") {
           await Bridge.secretClear(CUSTOM_SERVER_KEY).catch(() => {});
           customKey = false;
@@ -1391,6 +1520,7 @@ async function render() {
     chatKeys[key] = (await Bridge.secretPresent(key)) ?? false;
   }
   const customKey = (await Bridge.secretPresent(CUSTOM_SERVER_KEY)) ?? false;
+  const roniToken = (await Bridge.secretPresent(RONI_TOKEN_KEY)) ?? false;
 
   declaredViews.length = 0;
   localRedraw = null;
@@ -1400,7 +1530,10 @@ async function render() {
     general: () => [generalSection()],
     pills: () => [activePillsSection(connected)],
     agents: () => [claudeSection(status), agentsSection(agents), planSection(status)],
-    chat: () => [apiSection(hasKey), chatProvidersSection(chatKeys, keyChanged), localSection(customKey)],
+    chat: () => [
+      roniSection(roniToken),
+      advancedChatSection(apiSection(hasKey), chatProvidersSection(chatKeys, keyChanged), localSection(customKey)),
+    ],
     integrations: () => [integrationsSection(present), ...whatsappSections()],
     phone: () => [phoneSection(settings.phoneLink ?? false, toggle, settings)],
     shortcuts: () => [shortcutsSection(shortcutReport)],

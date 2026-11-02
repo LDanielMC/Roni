@@ -38,9 +38,11 @@ pub struct Settings {
     /// Show the Codex plan pill (5 h / weekly limits from `codex app-server`).
     /// Off by default; nothing is installed for it.
     pub show_codex_plan_in_notch: bool,
-    /// Who the chat talks to: "anthropic", a cloud provider of
-    /// openai_compat.rs ("openai", "google", "openrouter"), or a model server
-    /// of local_chat.rs ("ollama", "lmstudio", "custom"). Picked in the chat view.
+    /// Who the chat talks to: "roni" (the OpenClaw gateway on this computer, the
+    /// default), "anthropic", a cloud provider of openai_compat.rs ("openai",
+    /// "google", "openrouter"), or a model server of local_chat.rs ("ollama",
+    /// "lmstudio", "custom"). The others are picked in the chat view once
+    /// `other_providers_in_chat` is on.
     pub chat_provider: String,
     /// The model picked for each provider other than Anthropic (whose model is
     /// `model`), by provider id.
@@ -50,6 +52,12 @@ pub struct Settings {
     pub lmstudio_url: String,
     /// Any other OpenAI-compatible server; its key, if any, is in the keychain.
     pub custom_url: String,
+    /// The address of Roni's gateway (OpenClaw). Only this computer is accepted
+    /// (local_chat.rs); its token is in the credential store, never here.
+    pub roni_url: String,
+    /// Show the providers other than Roni in the chat's model picker. Off: the
+    /// chat is Roni's, and Settings keeps the rest under "Advanced".
+    pub other_providers_in_chat: bool,
     /// Global shortcuts the user changed, by action id; the others keep their
     /// default (see shortcuts.rs).
     pub shortcuts: crate::shortcuts::Bindings,
@@ -146,7 +154,9 @@ impl Default for Settings {
             show_plan_in_notch: false,
             plan_relay_installed: false,
             show_codex_plan_in_notch: false,
-            chat_provider: crate::chat::ANTHROPIC.into(),
+            chat_provider: crate::chat::RONI.into(),
+            roni_url: crate::chat::RONI_DEFAULT_URL.into(),
+            other_providers_in_chat: false,
             chat_models: BTreeMap::new(),
             ollama_url: String::new(),
             lmstudio_url: String::new(),
@@ -183,7 +193,18 @@ fn settings_path() -> PathBuf {
 }
 
 pub fn load() -> Settings {
-    load_from(&settings_path())
+    let mut settings = load_from(&settings_path());
+    migrate_chat_provider(&mut settings, crate::secrets::present(crate::claude::KEY));
+    settings
+}
+
+/// Roni's chat is the default now. A settings.json from before it holds the old
+/// default ("anthropic") whether or not that was a choice; it counts as one only
+/// when there is a Claude key to chat with.
+fn migrate_chat_provider(settings: &mut Settings, has_claude_key: bool) {
+    if settings.chat_provider == crate::chat::ANTHROPIC && !has_claude_key {
+        settings.chat_provider = crate::chat::RONI.into();
+    }
 }
 
 pub fn save(settings: &Settings) -> std::io::Result<()> {
@@ -440,6 +461,8 @@ mod tests {
   "ollamaUrl": "http://127.0.0.1:11434",
   "lmstudioUrl": "http://127.0.0.1:1234",
   "customUrl": "https://llm.example.com",
+  "roniUrl": "http://127.0.0.1:18790",
+  "otherProvidersInChat": true,
   "shortcuts": { "openChat": { "keys": "Ctrl+Shift+K", "enabled": false } },
   "mochiOutfit": "witchHat",
   "pillColors": { "integration_claude": "#2DD4BF" },
@@ -958,6 +981,8 @@ mod tests {
                 "ollamaUrl",
                 "lmstudioUrl",
                 "customUrl",
+                "roniUrl",
+                "otherProvidersInChat",
                 "shortcuts",
                 "mochiOutfit",
                 "pillColors",
@@ -1010,5 +1035,31 @@ mod tests {
         assert!(save_to(&file, &Settings::default()).is_err());
         assert_eq!(std::fs::read(&file).unwrap(), CUSTOM.as_bytes());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn roni_is_the_default_chat_and_an_old_default_follows_unless_there_is_a_claude_key() {
+        let d = Settings::default();
+        assert_eq!(d.chat_provider, "roni");
+        assert_eq!(d.roni_url, "http://127.0.0.1:18789");
+        assert!(!d.other_providers_in_chat);
+
+        let mut s = Settings::default();
+        s.chat_provider = "anthropic".into();
+        migrate_chat_provider(&mut s, false);
+        assert_eq!(s.chat_provider, "roni", "the old default, with nothing to chat with");
+        s.chat_provider = "anthropic".into();
+        migrate_chat_provider(&mut s, true);
+        assert_eq!(s.chat_provider, "anthropic", "a Claude key makes it a choice");
+        s.chat_provider = "google".into();
+        migrate_chat_provider(&mut s, false);
+        assert_eq!(s.chat_provider, "google", "a provider picked on purpose is never touched");
+    }
+
+    #[test]
+    fn a_settings_file_from_before_roni_still_loads_with_roni_filled_in() {
+        let s = parse(br#"{ "chatProvider": "google", "mainPill": "integration_claude" }"#).unwrap();
+        assert_eq!(s.chat_provider, "google");
+        assert_eq!(s.roni_url, "http://127.0.0.1:18789");
     }
 }

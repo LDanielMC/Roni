@@ -376,6 +376,10 @@ export const Bridge = {
 
   localConnect: (provider: "ollama" | "lmstudio" | "custom", url: string) =>
     callOrThrow<LocalServer>("local_connect", { provider, url }),
+  /** How Roni's gateway answers right now (one light request, to this computer only). */
+  roniStatus: () => callOrThrow<RoniStatus>("roni_status"),
+  /** Keeps the gateway token (if one was typed) bound to the address, then checks the gateway. */
+  roniConnect: (url: string, token: string) => callOrThrow<RoniStatus>("roni_connect", { url, token }),
   /** Copies a dropped file into the inbox. */
   ingestFile: (path: string) => callOrThrow<DroppedFile>("ingest_file", { path }),
   /** Only ever tells you whether a key exists — never its value. */
@@ -547,6 +551,15 @@ export interface LocalServer {
   models: string[];
   /** The address is this machine. */
   loopback: boolean;
+}
+
+/** How Roni's gateway (OpenClaw) answers: what Settings and the chat's banner show. */
+export interface RoniStatus {
+  state: "ok" | "no-token" | "bad-token" | "unreachable" | "error" | "bad-address";
+  /** The address as it is stored (clean); what was typed when it is not valid. */
+  url: string;
+  /** What to tell the user, in their language; empty when all is well. */
+  message: string;
 }
 
 export interface DroppedFile {

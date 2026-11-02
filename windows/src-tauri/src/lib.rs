@@ -560,6 +560,21 @@ fn local_set_key(url: String, key: String) -> Result<(), String> {
     local_chat::set_custom_key(&url, &key)
 }
 
+/// How Roni's gateway answers right now, for the chat's banner and Settings.
+/// Light, and only ever to this computer.
+#[tauri::command]
+async fn roni_status(shared: State<'_, Shared>) -> Result<local_chat::RoniStatus, String> {
+    let url = shared.settings.lock().unwrap().roni_url.clone();
+    Ok(local_chat::roni_status(&url).await)
+}
+
+/// Settings → Chat → Roni: keeps the gateway token (if one was typed) bound to
+/// the address, then reports how the gateway answers.
+#[tauri::command]
+async fn roni_connect(url: String, token: String) -> Result<local_chat::RoniStatus, String> {
+    local_chat::roni_connect(&url, &token).await
+}
+
 #[tauri::command]
 fn chat_reset(chat: State<Chat>) {
     chat.reset();
@@ -582,6 +597,10 @@ fn secret_set(app: AppHandle, key: String, value: String) -> Result<(), String> 
     // Bound to its server's address: only local_set_key may store it.
     if key == local_chat::CUSTOM_KEY {
         return Err("use local_set_key".into());
+    }
+    // The gateway token is bound to Roni's address too: only roni_connect stores it.
+    if key == local_chat::RONI_KEY {
+        return Err("use roni_connect".into());
     }
     let before = (key == "github-token").then(|| secrets::get(&key));
     secrets::set(&key, &value)?;
@@ -845,6 +864,8 @@ pub fn run() {
             chat_models,
             local_connect,
             local_set_key,
+            roni_status,
+            roni_connect,
             chat_reset,
             ingest_file,
             secret_present,

@@ -34,6 +34,9 @@ test("only providers with a key, or a connected server, are offered", () => {
   assert.deepEqual(none, []);
   const some = usableProviders({ ...DEFAULT_SETTINGS, ollamaUrl: "http://127.0.0.1:11434" }, { anthropic: true, openai: false });
   assert.deepEqual(some.map((p) => p.id), ["anthropic", "ollama"]);
+  // Roni answers on this computer only: no phone gets him (yet).
+  assert.ok(!usableProviders(DEFAULT_SETTINGS, { anthropic: true }).some((p) => p.id === "roni"));
+  assert.equal(providerOf("roni/openclaw/default"), null);
 });
 
 test("the models of one provider are told apart from the others'", () => {

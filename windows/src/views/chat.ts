@@ -9,9 +9,9 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { renderMarkdown } from "./markdown";
-import { Bridge, onEvent, type ChatContext, type ModelInfo } from "../core/bridge";
+import { Bridge, onEvent, type ChatContext, type ModelInfo, type RoniStatus } from "../core/bridge";
 import {
-  activeModel, pickModel, providerDef, visibleProviders, withModel, type ProviderDef,
+  activeModel, onlyRoni, pickModel, providerDef, visibleProviders, withModel, type ProviderDef,
 } from "../core/providers";
 import { Sound } from "../core/sound";
 import { State, type ChatMessage } from "../core/state";
@@ -27,7 +27,16 @@ const STRINGS = {
   loading: N_("Loading models…"),
   noKey: N_("No API key — add it in Settings."),
   openSettings: N_("Open Settings"),
+  askToken: N_("Paste Roni's gateway token to start chatting."),
+  tokenPlaceholder: N_("Gateway token"),
+  connect: N_("Connect"),
+  connecting: N_("Connecting…"),
+  tokenHelp: N_("Get it in the Ubuntu (WSL) terminal: openclaw gateway auth-token --show"),
+  retrying: N_("Trying again every few seconds."),
 };
+
+/** How often the chat asks again while Roni's gateway does not answer. */
+const GATEWAY_RETRY_MS = 8000;
 
 let nextId = 1;
 
@@ -224,12 +233,14 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   );
   const modelRow = h("div", { class: "model-row" }, modelBtn);
 
+  const banner = h("div", { class: "roni-banner" });
   const body = h("div", { class: "chat-body" });
   const picker = buildPicker(() => {
     body.classList.toggle("picking", picker.isOpen);
     drawModelButton();
+    syncGateway(); // a chip click picked another provider, or Roni again
   });
-  body.append(chipRow, log, picker.el, modelRow, bar);
+  body.append(chipRow, banner, log, picker.el, modelRow, bar);
 
   const el = h("div", { class: "view" }, h("div", { class: "card wash chat-card" }, body));
   (el.querySelector(".card") as HTMLElement).style.setProperty("--wash", "rgba(99,102,241,0.5)");
@@ -242,9 +253,159 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   function drawModelButton() {
     const p = providerDef(State.settings.chatProvider);
     modelDot.style.background = p.accent;
-    modelName.textContent = activeModel(State.settings) || t(STRINGS.noModel);
+    // Roni has one agent: his name says more than "openclaw/default".
+    modelName.textContent = p.id === "roni" ? p.name : activeModel(State.settings) || t(STRINGS.noModel);
     modelBtn.classList.toggle("open", picker.isOpen);
-    modelBtn.disabled = sending;
+    // Nothing to switch to until Settings → Chat → Advanced turns the others on.
+    const fixed = onlyRoni(State.settings);
+    modelBtn.classList.toggle("static", fixed);
+    modelBtn.disabled = sending || fixed;
+  }
+
+  // ── Roni's gateway: the token the first time, and a quiet retry when it is down ──
+
+  let gateway: RoniStatus["state"] | "unknown" = "unknown";
+  let checking = false;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let wasShown = false;
+
+  const wantsGateway = () => State.settings.chatProvider === "roni";
+
+  function stopRetry() {
+    if (retry !== null) clearTimeout(retry);
+    retry = null;
+  }
+
+  /** The chat is really on screen: this view, in the open island (a hidden island keeps its view). */
+  const chatShown = () => State.view === "prompt" && State.mode === "expanded";
+
+  /**
+   * Asks again later, but only while the chat is shown and Roni is not answering.
+   * A refused token is not retried (it would only be refused again, and the
+   * gateway may rate-limit failures): a new token, or reopening the chat, asks again.
+   */
+  function scheduleRetry() {
+    stopRetry();
+    if (!wantsGateway() || !chatShown() || gateway === "ok" || gateway === "bad-token") return;
+    retry = setTimeout(() => {
+      retry = null;
+      // The island does not tell this view when it is left: look again before asking.
+      if (!chatShown() || !wantsGateway()) {
+        wasShown = false;
+        return;
+      }
+      void checkGateway();
+    }, GATEWAY_RETRY_MS);
+  }
+
+  /** What the banner shows now: a retry that finds the same thing must not rebuild it (and lose the typing). */
+  let drawn = "";
+
+  function drawBanner(status: RoniStatus | null) {
+    const show = gateway !== "ok" && gateway !== "unknown" && status !== null && wantsGateway();
+    // Going from hidden to shown always redraws: an answer that arrived while another provider was picked drew nothing.
+    const signature = show ? `${gateway}|${status?.message ?? ""}` : "hidden";
+    if (signature === drawn) return;
+    drawn = signature;
+    clear(banner);
+    banner.classList.toggle("on", show);
+    if (!show || !status) {
+      onHeightChange();
+      return;
+    }
+    const needsToken = gateway === "no-token" || gateway === "bad-token";
+    const waiting = gateway === "unreachable" || gateway === "error";
+    banner.append(
+      h("div", {
+        class: "roni-msg",
+        text: needsToken && gateway === "no-token" ? t(STRINGS.askToken) : status.message,
+      }),
+    );
+    if (waiting) banner.append(h("div", { class: "roni-hint", text: t(STRINGS.retrying) }));
+    if (needsToken) {
+      const token = h("input", {
+        type: "password",
+        placeholder: t(STRINGS.tokenPlaceholder),
+        autocomplete: "off",
+        spellcheck: "false",
+      }) as HTMLInputElement;
+      const connect = h("button", { text: t(STRINGS.connect) }) as HTMLButtonElement;
+      const submitToken = async () => {
+        const value = token.value.trim();
+        if (!value) return;
+        connect.disabled = true;
+        connect.textContent = t(STRINGS.connecting);
+        let next: RoniStatus | null = null;
+        try {
+          next = await Bridge.roniConnect(State.settings.roniUrl, value);
+        } catch (err) {
+          next = { state: "error", url: State.settings.roniUrl, message: String(err).replace(/^Error:\s*/, "") };
+        }
+        token.value = ""; // the token lives in the credential store now, not here
+        gateway = next?.state ?? "ok";
+        drawn = ""; // this form's button is spent: draw a fresh one even if the answer is the same
+        drawBanner(next);
+        scheduleRetry();
+      };
+      connect.addEventListener("click", () => void submitToken());
+      token.addEventListener("keydown", (e) => {
+        if ((e as KeyboardEvent).key === "Enter") {
+          e.preventDefault();
+          void submitToken();
+        }
+        e.stopPropagation(); // Escape closes the island, not the field
+      });
+      banner.append(
+        h("div", { class: "roni-form" }, token, connect),
+        h("div", { class: "roni-hint", text: t(STRINGS.tokenHelp) }),
+      );
+    }
+    onHeightChange();
+  }
+
+  /**
+   * Roni's gateway: asked when the chat is shown (again each time it is reopened
+   * unless all was well), then again only while it is not answering. Another
+   * provider's chat shows nothing of it.
+   */
+  function syncGateway() {
+    if (!wantsGateway()) {
+      stopRetry();
+      if (gateway !== "unknown") {
+        gateway = "unknown"; // back to Roni asks again
+        drawn = "";
+        clear(banner);
+        banner.classList.remove("on");
+        onHeightChange();
+      }
+      wasShown = false;
+      return;
+    }
+    const shown = chatShown();
+    if (shown) {
+      if (!wasShown && gateway !== "ok" && !checking) void checkGateway();
+      else if (gateway === "unknown" && !checking) void checkGateway();
+      else if (gateway !== "ok" && retry === null && !checking) scheduleRetry();
+    } else {
+      stopRetry();
+    }
+    wasShown = shown;
+  }
+
+  async function checkGateway() {
+    if (checking || !wantsGateway()) return;
+    checking = true;
+    try {
+      const status = await Bridge.roniStatus();
+      gateway = status?.state ?? "ok"; // no answer at all is no news
+      drawBanner(status ?? null);
+    } catch (err) {
+      gateway = "error";
+      drawBanner({ state: "error", url: State.settings.roniUrl, message: String(err).replace(/^Error:\s*/, "") });
+    } finally {
+      checking = false;
+      scheduleRetry();
+    }
   }
 
   modelBtn.addEventListener("click", () => {
@@ -296,6 +457,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       State.noteMessage = String(err).replace(/^Error:\s*/, "");
       State.view = "note";
       Sound.play("error");
+      void checkGateway(); // so the banner is there, with the token field if that is what is missing
     } finally {
       sending = false;
       live = null;
@@ -344,6 +506,8 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       // Leaving the chat folds the picker away.
       if (State.view !== "prompt" && picker.isOpen) picker.close();
       drawModelButton();
+
+      syncGateway();
 
       input.placeholder = t(State.chatHistory.length === 0 ? STRINGS.placeholderFirst : STRINGS.placeholderNext);
       input.disabled = sending;

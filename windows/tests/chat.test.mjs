@@ -26,7 +26,8 @@ let view;
 beforeEach(() => {
   calls.length = 0;
   answers = {};
-  State.settings = { ...DEFAULT_SETTINGS, chatModels: {} };
+  // The flows below are the picker's: Claude's chat, with every provider on offer.
+  State.settings = { ...DEFAULT_SETTINGS, chatModels: {}, chatProvider: "anthropic", otherProvidersInChat: true };
   State.chatHistory = [];
   State.stateOverride = null;
   State.view = "prompt";
@@ -54,7 +55,7 @@ test("a provider without a key is never asked for its models", async () => {
   $(".model-btn").fire("click");
   await flush();
   assert.ok($(".chat-body").classList.contains("picking"));
-  assert.deepEqual(chips(), ["Anthropic", "Google", "OpenAI", "OpenRouter"]);
+  assert.deepEqual(chips(), ["Roni", "Anthropic", "Google", "OpenAI", "OpenRouter"]);
   assert.deepEqual(sent("secret_present"), [{ key: "anthropic-api-key" }]);
   assert.deepEqual(sent("chat_models"), []);
   assert.match($(".picker-status").textContent, /No API key/);
@@ -83,7 +84,7 @@ test("switching provider saves it and asks the new provider only", async () => {
   $(".model-btn").fire("click");
   await flush();
   assert.deepEqual(sent("chat_models"), []);
-  view.el.find(".picker-chip")[1].fire("click");
+  view.el.find(".picker-chip")[2].fire("click");
   await flush();
   assert.equal(State.settings.chatProvider, "google");
   assert.deepEqual(sent("chat_models"), [{ provider: "google" }]);
@@ -121,4 +122,244 @@ test("a local answer streams into one reply, then the finished text replaces it"
   assert.equal(view.el.find(".reply")[0].textContent, "Hello there!");
   assert.deepEqual(State.chatHistory.map((m) => m.role), ["user", "assistant"]);
   assert.ok(!$(".model-btn").disabled);
+});
+
+// ── Roni's gateway ────────────────────────────────────────────────────────────
+
+/** A chat that is Roni's, as it is out of the box. */
+function roniChat() {
+  State.mode = "expanded";
+  State.settings = { ...DEFAULT_SETTINGS, chatModels: {} };
+  calls.length = 0;
+  view = buildPrompt(() => {});
+  view.sync();
+}
+
+/** Leaves the chat, which also puts any retry timer away. */
+function leave() {
+  State.view = "home";
+  view.sync();
+  State.view = "prompt";
+  State.mode = "hidden";
+}
+
+test("Roni's chat is a label, not a switcher, until Advanced turns the others on", () => {
+  roniChat();
+  assert.equal($(".model-name").textContent, "Roni");
+  assert.ok($(".model-btn").disabled);
+  assert.ok($(".model-btn").classList.contains("static"));
+  State.settings = { ...State.settings, otherProvidersInChat: true };
+  view.sync();
+  assert.ok(!$(".model-btn").disabled);
+  assert.ok(!$(".model-btn").classList.contains("static"));
+  leave();
+});
+
+test("when the gateway answers the chat says nothing, and asks only once", async () => {
+  answers.roni_status = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
+  roniChat();
+  await flush();
+  view.sync();
+  assert.equal(sent("roni_status").length, 1);
+  assert.ok(!$(".roni-banner").classList.contains("on"));
+  leave();
+});
+
+test("without a token the chat asks for it, keeps it out of the page and hides the banner once it is in", async () => {
+  answers.roni_status = { state: "no-token", url: "http://127.0.0.1:18789", message: "No token yet — paste it to talk to Roni." };
+  roniChat();
+  await flush();
+  const banner = $(".roni-banner");
+  assert.ok(banner.classList.contains("on"));
+  assert.match(banner.textContent, /Paste Roni's gateway token/);
+  const [field] = banner.find("input");
+  assert.equal(field.getAttribute("type"), "password", "typed as a secret");
+
+  answers.roni_connect = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
+  field.value = "  tok-123  ";
+  banner.find("button")[0].fire("click");
+  await flush();
+  assert.deepEqual(sent("roni_connect"), [{ url: "http://127.0.0.1:18789", token: "tok-123" }]);
+  assert.equal(field.value, "", "the token is not left in the field");
+  assert.ok(!banner.classList.contains("on"));
+  // Never through the generic secret command: Rust ties the token to the address.
+  assert.deepEqual(sent("secret_set"), []);
+  leave();
+});
+
+test("a wrong token says so and asks again; an empty field sends nothing", async () => {
+  answers.roni_status = { state: "bad-token", url: "http://127.0.0.1:18789", message: "Roni's gateway refused the token. Paste it again in Settings → Chat." };
+  roniChat();
+  await flush();
+  const banner = $(".roni-banner");
+  assert.ok(banner.classList.contains("on"));
+  assert.match(banner.textContent, /refused the token/);
+  try {
+    banner.find("input")[0].value = "   "; // a real field starts as ""
+    banner.find("button")[0].fire("click");
+    await flush();
+    assert.deepEqual(sent("roni_connect"), []);
+  } finally {
+    leave();
+  }
+});
+
+test("a gateway that does not answer shows why, without a token field, and asks again on its own", async () => {
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  roniChat();
+  await flush();
+  const banner = $(".roni-banner");
+  assert.ok(banner.classList.contains("on"));
+  assert.match(banner.textContent, /Is OpenClaw running\?/);
+  assert.match(banner.textContent, /Trying again/);
+  assert.equal(banner.find("input").length, 0);
+  // Leaving the chat stops the asking: nothing keeps polling a hidden island.
+  leave();
+});
+
+test("another provider's chat never asks Roni's gateway anything", async () => {
+  State.settings = { ...DEFAULT_SETTINGS, chatProvider: "google" };
+  calls.length = 0;
+  view = buildPrompt(() => {});
+  view.sync();
+  await flush();
+  assert.deepEqual(sent("roni_status"), []);
+  assert.ok(!$(".roni-banner").classList.contains("on"));
+});
+
+test("a hidden island asks nothing more: the chat keeps its view but is not on screen", async () => {
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  roniChat();
+  await flush();
+  assert.equal(sent("roni_status").length, 1);
+  // The island folds away; the view stays "prompt". No timer may be left to wake it.
+  State.mode = "compact";
+  view.sync();
+  const timers = [];
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 1000) { timers.push(ms); return 0; } return real(fn, ms, ...a); };
+  try {
+    view.sync();
+    await flush();
+  } finally {
+    globalThis.setTimeout = real;
+  }
+  assert.deepEqual(timers, []);
+  assert.equal(sent("roni_status").length, 1);
+  leave();
+});
+
+test("a refused token is not asked again on a timer, and what is being typed survives a recheck", async () => {
+  answers.roni_status = { state: "bad-token", url: "http://127.0.0.1:18789", message: "Roni's gateway refused the token. Paste it again in Settings → Chat." };
+  const timers = [];
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 1000) { timers.push(ms); return 0; } return real(fn, ms, ...a); };
+  try {
+    roniChat();
+    await flush();
+    assert.deepEqual(timers, [], "no retry for a refused token");
+    const banner = $(".roni-banner");
+    const [field] = banner.find("input");
+    field.value = "half-typed";
+    // Same answer again (the island was reopened): the field is the same one, with its text.
+    State.mode = "compact";
+    view.sync();
+    State.mode = "expanded";
+    view.sync();
+    await flush();
+    assert.equal(banner.find("input")[0], field);
+    assert.equal(field.value, "half-typed");
+  } finally {
+    globalThis.setTimeout = real;
+    leave();
+  }
+});
+
+test("an unreachable gateway is asked again every few seconds while the chat is shown", async () => {
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  const timers = [];
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 1000) { timers.push(ms); return 0; } return real(fn, ms, ...a); };
+  try {
+    roniChat();
+    await flush();
+    assert.deepEqual(timers, [8000]);
+  } finally {
+    globalThis.setTimeout = real;
+    leave();
+  }
+});
+
+test("a pending retry that finds the chat left (the island never tells the view) asks nothing", async () => {
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  const callbacks = [];
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 1000) { callbacks.push(fn); return 0; } return real(fn, ms, ...a); };
+  try {
+    roniChat();
+    await flush();
+    assert.equal(callbacks.length, 1);
+    assert.equal(sent("roni_status").length, 1);
+    // Another view takes over; the chat's sync() is not called. Then the timer fires.
+    State.view = "home";
+    callbacks[0]();
+    await flush();
+    assert.equal(sent("roni_status").length, 1, "nothing asked");
+    assert.equal(callbacks.length, 1, "and nothing scheduled");
+    // Coming back asks again.
+    State.view = "prompt";
+    view.sync();
+    await flush();
+    assert.equal(sent("roni_status").length, 2);
+  } finally {
+    globalThis.setTimeout = real;
+    leave();
+  }
+});
+
+test("picking another provider hides Roni's banner, and picking Roni again asks again", async () => {
+  answers.roni_status = { state: "no-token", url: "http://127.0.0.1:18789", message: "No token yet — paste it to talk to Roni." };
+  answers.secret_present = false;
+  roniChat();
+  State.settings = { ...State.settings, otherProvidersInChat: true };
+  view.sync();
+  await flush();
+  const banner = $(".roni-banner");
+  assert.ok(banner.classList.contains("on"));
+  $(".model-btn").fire("click");
+  await flush();
+  const chipsNow = view.el.find(".picker-chip");
+  const google = chipsNow.find((c) => c.textContent === "Google");
+  const roni = chipsNow.find((c) => c.textContent === "Roni");
+  google.fire("click");
+  await flush();
+  assert.ok(!banner.classList.contains("on"), "another provider's chat shows nothing of Roni's gateway");
+  const asked = sent("roni_status").length;
+  view.el.find(".picker-chip").find((c) => c.textContent === "Roni").fire("click");
+  await flush();
+  assert.equal(sent("roni_status").length, asked + 1);
+  assert.ok(banner.classList.contains("on"));
+  void roni;
+  leave();
+});
+
+test("a slow answer that lands while another provider is picked does not leave Roni's banner hidden for good", async () => {
+  let finish;
+  answers.roni_status = () => new Promise((resolve) => (finish = resolve));
+  roniChat();
+  State.settings = { ...State.settings, otherProvidersInChat: true };
+  view.sync();
+  await flush();
+  $(".model-btn").fire("click");
+  await flush();
+  view.el.find(".picker-chip").find((c) => c.textContent === "Google").fire("click");
+  await flush();
+  const down = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  finish(down);
+  await flush();
+  answers.roni_status = down; // the next question is answered at once
+  view.el.find(".picker-chip").find((c) => c.textContent === "Roni").fire("click");
+  await flush();
+  assert.ok($(".roni-banner").classList.contains("on"), "OpenClaw is down and the chat says so");
+  leave();
 });

@@ -25,6 +25,8 @@ use crate::{net, secrets};
 
 /// Credential store entry of the key of the user's own OpenAI-compatible server.
 pub const CUSTOM_KEY: &str = "openai-compatible-key";
+/// Credential store entry of the OpenClaw gateway token: Roni's own server.
+pub const RONI_KEY: &str = "roni-gateway-token";
 
 const MAX_TOKENS: u32 = 4096;
 /// A text file is sent inline up to this many characters; the rest is cut.
@@ -62,14 +64,24 @@ pub fn set_custom_key(typed_url: &str, key: &str) -> Result<(), String> {
     if !may_carry_key(&url) {
         return Err(t("A key is only sent over https, or to a server on this computer."));
     }
+    store_bound_key(CUSTOM_KEY, &url, key)
+}
+
+fn store_bound_key(entry: &str, url: &Url, key: &str) -> Result<(), String> {
     let bound = BoundKey { url: url.as_str().trim_end_matches('/').to_string(), key: key.trim().to_string() };
     let value = serde_json::to_string(&bound).map_err(|e| e.to_string())?;
-    secrets::set(CUSTOM_KEY, &value)
+    secrets::set(entry, &value)
 }
 
 /// The key, if it was entered for exactly this address.
 fn custom_key_for(url: &Url) -> Option<String> {
     let stored = secrets::get(CUSTOM_KEY)?;
+    key_for(&stored, url)
+}
+
+/// The gateway token, if it was entered for exactly this address.
+fn roni_key_for(url: &Url) -> Option<String> {
+    let stored = secrets::get(RONI_KEY)?;
     key_for(&stored, url)
 }
 
@@ -88,18 +100,46 @@ pub struct Server {
     pub key: Option<String>,
 }
 
-/// Ollama, LM Studio or "custom", from the settings; None for any other id.
+impl Server {
+    fn is_roni(&self) -> bool {
+        self.id == chat::RONI
+    }
+
+    fn flavor(&self) -> Flavor {
+        if self.is_roni() { Flavor::Roni } else { Flavor::Model }
+    }
+}
+
+/// What a failure should say: a model server the user runs, or Roni's gateway
+/// (its errors have their own causes and their own fixes).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Flavor {
+    Model,
+    Roni,
+}
+
+/// The address of Roni's gateway as the settings hold it; empty means the usual one.
+fn roni_address(settings: &Settings) -> String {
+    if settings.roni_url.trim().is_empty() { chat::RONI_DEFAULT_URL.to_string() } else { settings.roni_url.clone() }
+}
+
+/// Roni, Ollama, LM Studio or "custom", from the settings; None for any other id.
 pub fn server(settings: &Settings, id: &str) -> Option<Server> {
     let (id, name, url, key) = match id {
-        "ollama" => ("ollama", "Ollama", &settings.ollama_url, None),
-        "lmstudio" => ("lmstudio", "LM Studio", &settings.lmstudio_url, None),
+        "roni" => {
+            let url = roni_address(settings);
+            let key = net::normalise_server_url(&url).ok().and_then(|u| roni_key_for(&u));
+            ("roni", "Roni", url, key)
+        }
+        "ollama" => ("ollama", "Ollama", settings.ollama_url.clone(), None),
+        "lmstudio" => ("lmstudio", "LM Studio", settings.lmstudio_url.clone(), None),
         "custom" => {
             let key = net::normalise_server_url(&settings.custom_url).ok().and_then(|u| custom_key_for(&u));
-            ("custom", crate::i18n::n_("OpenAI-compatible server"), &settings.custom_url, key)
+            ("custom", crate::i18n::n_("OpenAI-compatible server"), settings.custom_url.clone(), key)
         }
         _ => return None,
     };
-    Some(Server { id, name, url: url.clone(), key })
+    Some(Server { id, name, url, key })
 }
 
 /// The usual address of a server on this machine; none for "custom". Ollama's
@@ -125,11 +165,29 @@ fn unreachable(url: &Url) -> String {
     tf("Cannot reach {url}. Is the server running?", &[("url", url.as_str().trim_end_matches('/'))])
 }
 
+fn unreachable_for(flavor: Flavor, url: &Url) -> String {
+    match flavor {
+        Flavor::Model => unreachable(url),
+        Flavor::Roni => {
+            tf("Cannot reach Roni at {url}. Is OpenClaw running?", &[("url", url.as_str().trim_end_matches('/'))])
+        }
+    }
+}
+
+/// Roni's gateway is on this computer, always: its token never travels further.
+fn roni_address_ok(url: &Url) -> Result<(), String> {
+    if net::is_loopback_url(url) { Ok(()) } else { Err(t("Roni only connects to this computer (127.0.0.1).")) }
+}
+
 fn base_url(server: &Server) -> Result<Url, String> {
     if server.url.trim().is_empty() {
         return Err(tf("Connect {name} in Settings → Local models first.", &[("name", &t(server.name))]));
     }
-    net::normalise_server_url(&server.url)
+    let url = net::normalise_server_url(&server.url)?;
+    if server.is_roni() {
+        roni_address_ok(&url)?;
+    }
+    Ok(url)
 }
 
 /// What the "Connect" button reports: the address as it will be stored, the
@@ -154,6 +212,94 @@ pub async fn connect(id: &str, typed: &str) -> Result<Connected, String> {
         models,
         loopback: net::is_loopback_url(&url),
     })
+}
+
+// ── Roni's gateway ────────────────────────────────────────────────────────────
+//
+// OpenClaw's gateway answers the OpenAI API on this computer
+// (https://docs.openclaw.ai/gateway/openai-http-api). The token goes in
+// `Authorization: Bearer`, is kept in the credential store bound to the address,
+// and is never written to a file, a log or an error.
+
+/// What Settings and the chat show about the gateway.
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RoniStatus {
+    /// "ok", "no-token", "bad-token", "unreachable", "error" or "bad-address".
+    pub state: &'static str,
+    /// The address as it is stored (clean); what was typed when it is not valid.
+    pub url: String,
+    /// What to tell the user, in their language; empty when all is well.
+    pub message: String,
+}
+
+impl RoniStatus {
+    fn new(state: &'static str, url: &Url, message: String) -> Self {
+        RoniStatus { state, url: url.as_str().trim_end_matches('/').to_string(), message }
+    }
+}
+
+/// An empty address means the usual one.
+fn roni_url(typed: &str) -> Result<Url, String> {
+    let raw = if typed.trim().is_empty() { chat::RONI_DEFAULT_URL } else { typed };
+    let url = net::normalise_server_url(raw)?;
+    roni_address_ok(&url)?;
+    Ok(url)
+}
+
+/// Is the gateway there, and does it take our token? One light `GET /v1/models`.
+pub async fn roni_status(typed: &str) -> RoniStatus {
+    let url = match roni_url(typed) {
+        Ok(url) => url,
+        Err(message) => return RoniStatus { state: "bad-address", url: typed.trim().to_string(), message },
+    };
+    match roni_key_for(&url) {
+        Some(key) => probe(&url, &key).await,
+        None => RoniStatus::new("no-token", &url, t("No token yet — paste it to talk to Roni.")),
+    }
+}
+
+async fn probe(url: &Url, key: &str) -> RoniStatus {
+    let sent = match net::client_no_redirect(url, Duration::from_secs(5)) {
+        Ok(client) => client.get(net::join(url, "v1/models")).header("Authorization", bearer(Some(key))).send().await,
+        Err(message) => return RoniStatus::new("error", url, message),
+    };
+    let Ok(response) = sent else {
+        return RoniStatus::new("unreachable", url, unreachable_for(Flavor::Roni, url));
+    };
+    let code = response.status().as_u16();
+    match code {
+        200..=299 => RoniStatus::new("ok", url, String::new()),
+        300..=399 => RoniStatus::new(
+            "error",
+            url,
+            t("Roni's gateway tried to send the chat somewhere else, so it was not followed."),
+        ),
+        401 | 403 => RoniStatus::new(
+            "bad-token",
+            url,
+            t("Roni's gateway refused the token. Paste it again in Settings → Chat."),
+        ),
+        404 => RoniStatus::new(
+            "error",
+            url,
+            t("Roni's gateway answered 404: its chat endpoint is probably off. Turn on gateway.http.endpoints.chatCompletions.enabled in OpenClaw."),
+        ),
+        _ => RoniStatus::new("error", url, tf("Roni's gateway answered with HTTP {code}.", &[("code", &code.to_string())])),
+    }
+}
+
+/// Settings → Chat → Roni: keeps the token (when one was typed) bound to this
+/// address, then says how the gateway answers.
+pub async fn roni_connect(typed: &str, token: &str) -> Result<RoniStatus, String> {
+    let url = match roni_url(typed) {
+        Ok(url) => url,
+        Err(message) => return Ok(RoniStatus { state: "bad-address", url: typed.trim().to_string(), message }),
+    };
+    if !token.trim().is_empty() {
+        store_bound_key(RONI_KEY, &url, token)?;
+    }
+    Ok(roni_status(typed).await)
 }
 
 /// The models of a connected server, for the picker in the chat view.
@@ -246,8 +392,12 @@ fn user_text(first: bool, context: Option<&ChatContext>, query: &str) -> String 
     }
 }
 
+/// An empty `system` sends none: Roni's personality lives in OpenClaw, not here.
 fn request_body(model: &str, system: &str, history: &[Value], user: &Value) -> Value {
-    let mut messages = vec![json!({ "role": "system", "content": system })];
+    let mut messages = Vec::new();
+    if !system.is_empty() {
+        messages.push(json!({ "role": "system", "content": system }));
+    }
     messages.extend(history.iter().cloned());
     messages.push(user.clone());
     json!({ "model": model, "messages": messages, "stream": true, "max_tokens": MAX_TOKENS })
@@ -278,14 +428,18 @@ pub async fn send_with(
     on_delta: impl FnMut(String),
 ) -> Result<ChatReply, String> {
     let base = base_url(server)?;
+    if server.is_roni() && server.key.is_none() {
+        return Err(t("Paste Roni's gateway token in Settings → Chat first."));
+    }
     if model.is_empty() {
         return Err(t("Pick a model above the chat box first."));
     }
     let turn = chat.begin(server.id);
     let user = json!({ "role": "user", "content": user_text(turn.first, context.as_ref(), &query) });
-    let body = request_body(model, &chat::system_prompt(false), &turn.history, &user);
+    let system = if server.is_roni() { String::new() } else { chat::system_prompt(false) };
+    let body = request_body(model, &system, &turn.history, &user);
 
-    let answer = stream(&base, server.key.as_deref(), model, &body, on_delta).await?;
+    let answer = stream(&base, server.key.as_deref(), model, &body, server.flavor(), on_delta).await?;
     if answer.is_empty() {
         return Err(t("No response text."));
     }
@@ -342,17 +496,50 @@ async fn stream(
     key: Option<&str>,
     model: &str,
     body: &Value,
+    flavor: Flavor,
     mut on_delta: impl FnMut(String),
 ) -> Result<String, String> {
-    let mut reply = net::client(base, Duration::from_secs(300))?
+    let http = match flavor {
+        Flavor::Model => net::client(base, Duration::from_secs(300))?,
+        Flavor::Roni => net::client_no_redirect(base, Duration::from_secs(300))?,
+    };
+    let mut reply = http
         .post(net::join(base, "v1/chat/completions"))
         .header("Authorization", bearer(key))
         .json(body)
         .send()
         .await
-        .map_err(|_| unreachable(base))?;
+        .map_err(|_| unreachable_for(flavor, base))?;
 
     let status = reply.status();
+    if flavor == Flavor::Roni {
+        // A redirect would send the conversation somewhere else: never followed.
+        if status.is_redirection() {
+            return Err(t("Roni's gateway tried to send the chat somewhere else, so it was not followed."));
+        }
+        // The gateway's own causes, with their fixes: a wrong token, or the chat
+        // endpoint left off (OpenClaw ships it disabled).
+        match status.as_u16() {
+            // OpenClaw also answers 401 when it lacks its own provider credentials,
+            // and then says so: that message is the useful one.
+            401 | 403 => {
+                let body = net::read_capped(reply, net::MAX_ERROR_BODY).await.unwrap_or_default();
+                // Only the gateway's own error message, never raw body text.
+                let said = serde_json::from_slice::<Value>(&body)
+                    .ok()
+                    .and_then(|v| v.pointer("/error/message").and_then(Value::as_str).map(str::to_string))
+                    .filter(|m| !m.trim().is_empty());
+                return Err(said
+                    .unwrap_or_else(|| t("Roni's gateway refused the token. Paste it again in Settings → Chat.")));
+            }
+            404 => {
+                return Err(t(
+                    "Roni's gateway answered 404: its chat endpoint is probably off. Turn on gateway.http.endpoints.chatCompletions.enabled in OpenClaw.",
+                ))
+            }
+            _ => {}
+        }
+    }
     if status.as_u16() == 404 {
         return Err(tf("{model} isn't installed. Pick another model above the chat box.", &[("model", model)]));
     }
@@ -365,7 +552,7 @@ async fn stream(
     let mut accumulated = String::new();
     let mut pending = Vec::<u8>::new();
     let mut last = Instant::now().checked_sub(DELTA_INTERVAL).unwrap_or_else(Instant::now);
-    while let Some(chunk) = reply.chunk().await.map_err(|_| unreachable(base))? {
+    while let Some(chunk) = reply.chunk().await.map_err(|_| unreachable_for(flavor, base))? {
         pending.extend_from_slice(&chunk);
         // Whole lines only: a chunk may end in the middle of one, or of a character.
         while let Some(end) = pending.iter().position(|b| *b == b'\n') {
@@ -506,7 +693,7 @@ mod tests {
         body.push_str("data: [DONE]\n\n");
         let u = serve_once("200 OK", "Content-Type: text/event-stream\r\n", body.into_bytes());
         let mut seen = Vec::new();
-        let answer = block_on(stream(&url(&u), None, "m", &json!({}), |v| seen.push(v))).unwrap();
+        let answer = block_on(stream(&url(&u), None, "m", &json!({}), Flavor::Model, |v| seen.push(v))).unwrap();
         assert_eq!(answer, "## Answer\n\n- **item 1**\n```python\nprint('hello')\n```");
         assert_eq!(seen.last().unwrap(), &answer);
         assert!(seen.iter().all(|v| !v.contains("step") && !v.contains("internal")));
@@ -515,19 +702,19 @@ mod tests {
     #[test]
     fn stream_errors_say_what_happened() {
         let u = serve_once("404 Not Found", "Content-Length: 2\r\n", b"{}".to_vec());
-        let err = block_on(stream(&url(&u), None, "unknown-model", &json!({}), |_| {})).unwrap_err();
+        let err = block_on(stream(&url(&u), None, "unknown-model", &json!({}), Flavor::Model, |_| {})).unwrap_err();
         assert_eq!(err, "unknown-model isn't installed. Pick another model above the chat box.");
         let body = br#"{"error":{"message":"context too long"}}"#;
         let u = serve_once("400 Bad Request", &format!("Content-Length: {}\r\n", body.len()), body.to_vec());
-        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err(), "context too long");
+        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), Flavor::Model, |_| {})).unwrap_err(), "context too long");
         let u = serve_once("200 OK", "", b"data: {\"error\":{\"message\":\"crashed\"}}\n".to_vec());
-        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err(), "crashed");
+        assert_eq!(block_on(stream(&url(&u), None, "m", &json!({}), Flavor::Model, |_| {})).unwrap_err(), "crashed");
     }
 
     #[test]
     fn an_endless_line_is_cut_off() {
         let u = serve_once("200 OK", "", vec![b'x'; MAX_LINE + 10]);
-        let err = block_on(stream(&url(&u), None, "m", &json!({}), |_| {})).unwrap_err();
+        let err = block_on(stream(&url(&u), None, "m", &json!({}), Flavor::Model, |_| {})).unwrap_err();
         assert_eq!(err, "The server's answer is too large.");
     }
 
@@ -554,6 +741,126 @@ mod tests {
         std::fs::write(&bin, [0xff, 0xfe, 0x00, 0x80]).unwrap();
         assert_eq!(file_note("blob.bin", bin.to_str().unwrap()), "File: blob.bin");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+
+    // ── Roni's gateway ────────────────────────────────────────────────────────
+
+    #[test]
+    fn roni_is_a_server_with_its_own_default_address_and_one_agent() {
+        let s = Settings::default();
+        let roni = server(&s, "roni").unwrap();
+        assert_eq!(roni.id, "roni");
+        assert_eq!(roni.url, "http://127.0.0.1:18789");
+        assert_eq!(roni.flavor(), Flavor::Roni);
+        assert_eq!(server(&s, "ollama").unwrap().flavor(), Flavor::Model);
+        // An empty address (an older settings.json) is the usual one.
+        let mut blank = Settings::default();
+        blank.roni_url = "  ".into();
+        assert_eq!(server(&blank, "roni").unwrap().url, "http://127.0.0.1:18789");
+        assert_eq!(chat::model_for(&s, "roni"), "openclaw/default");
+    }
+
+    #[test]
+    fn roni_only_talks_to_this_computer() {
+        let mut s = Settings::default();
+        assert!(base_url(&server(&s, "roni").unwrap()).is_ok());
+        for elsewhere in ["https://llm.example.com", "http://192.168.1.20:18789"] {
+            s.roni_url = elsewhere.into();
+            assert_eq!(
+                base_url(&server(&s, "roni").unwrap()).unwrap_err(),
+                "Roni only connects to this computer (127.0.0.1)."
+            );
+        }
+        // Other servers may be anywhere: that is their feature, not Roni's.
+        s.custom_url = "https://llm.example.com".into();
+        assert!(base_url(&server(&s, "custom").unwrap()).is_ok());
+        assert!(roni_url("").is_ok());
+        assert!(roni_url("localhost:18789").is_ok());
+        assert!(roni_url("https://evil.example").is_err());
+    }
+
+    #[test]
+    fn no_system_message_goes_to_roni_and_every_other_server_still_gets_one() {
+        let user = json!({"role":"user","content":"hola"});
+        let roni = request_body("openclaw/default", "", &[], &user);
+        assert_eq!(roni["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(roni["messages"][0]["role"], "user");
+        assert_eq!(roni["model"], "openclaw/default");
+        assert_eq!(roni["stream"], true);
+        let other = request_body("llama3.2", "sys", &[], &user);
+        assert_eq!(other["messages"][0]["role"], "system");
+    }
+
+    #[test]
+    fn without_a_token_roni_says_so_before_asking_anything() {
+        let chat = Chat::default();
+        let roni = Server { id: "roni", name: "Roni", url: "http://127.0.0.1:1".into(), key: None };
+        let err = block_on(send_with(&chat, &roni, "openclaw/default", "hi".into(), None, |_| {})).err().unwrap();
+        assert_eq!(err, "Paste Roni's gateway token in Settings → Chat first.");
+        // Nothing was recorded: the first real turn is still the first.
+        assert!(chat.begin("roni").first);
+    }
+
+    #[test]
+    fn roni_failures_say_what_to_do() {
+        let ask = |status: &str, extra: &str, body: &[u8]| {
+            let u = serve_once(status, extra, body.to_vec());
+            block_on(stream(&url(&u), Some("tok"), "openclaw/default", &json!({}), Flavor::Roni, |_| {})).unwrap_err()
+        };
+        assert_eq!(
+            ask("401 Unauthorized", "Content-Length: 2\r\n", b"{}"),
+            "Roni's gateway refused the token. Paste it again in Settings → Chat."
+        );
+        assert!(ask("404 Not Found", "Content-Length: 2\r\n", b"{}").contains("chatCompletions.enabled"));
+        // A 401 that explains itself (OpenClaw lacking its own key) is shown as it says it.
+        let body = br#"{"error":{"message":"No API key for the model provider"}}"#;
+        assert_eq!(
+            ask("401 Unauthorized", &format!("Content-Length: {}\r\n", body.len()), body),
+            "No API key for the model provider"
+        );
+        // A redirect is not followed, in the chat or in the check.
+        let moved = ask("307 Temporary Redirect", "Location: http://example.invalid/\r\nContent-Length: 0\r\n", b"");
+        assert!(moved.contains("not followed"), "{moved}");
+        let u = serve_once("307 Temporary Redirect", "Location: http://example.invalid/\r\nContent-Length: 0\r\n", Vec::new());
+        let probed = block_on(probe(&url(&u), "tok"));
+        assert_eq!(probed.state, "error");
+        assert!(probed.message.contains("not followed"));
+        // Nobody listening: the message names Roni, not "the server".
+        let err = block_on(stream(&url("http://127.0.0.1:1"), Some("tok"), "m", &json!({}), Flavor::Roni, |_| {})).unwrap_err();
+        assert_eq!(err, "Cannot reach Roni at http://127.0.0.1:1. Is OpenClaw running?");
+        // The same 404 on a model server is still about the model.
+        let u = serve_once("404 Not Found", "Content-Length: 2\r\n", b"{}".to_vec());
+        let err = block_on(stream(&url(&u), None, "gone", &json!({}), Flavor::Model, |_| {})).unwrap_err();
+        assert_eq!(err, "gone isn't installed. Pick another model above the chat box.");
+    }
+
+    #[test]
+    fn the_gateway_check_tells_apart_ok_a_wrong_token_and_nobody_home() {
+        let body = br#"{"data":[{"id":"openclaw/default"}]}"#;
+        let u = serve_once("200 OK", &format!("Content-Length: {}\r\n", body.len()), body.to_vec());
+        let ok = block_on(probe(&url(&u), "tok"));
+        assert_eq!((ok.state, ok.message.as_str()), ("ok", ""));
+        assert_eq!(ok.url, u);
+
+        let u = serve_once("401 Unauthorized", "Content-Length: 2\r\n", b"{}".to_vec());
+        assert_eq!(block_on(probe(&url(&u), "bad")).state, "bad-token");
+        let u = serve_once("503 Service Unavailable", "Content-Length: 2\r\n", b"{}".to_vec());
+        let down = block_on(probe(&url(&u), "tok"));
+        assert_eq!(down.state, "error");
+        assert_eq!(down.message, "Roni's gateway answered with HTTP 503.");
+        let none = block_on(probe(&url("http://127.0.0.1:1"), "tok"));
+        assert_eq!(none.state, "unreachable");
+        assert!(none.message.contains("Is OpenClaw running?"));
+    }
+
+    #[test]
+    fn a_bad_address_is_reported_without_touching_the_network_or_the_token() {
+        let far = block_on(roni_connect("https://evil.example", "secret-token")).unwrap();
+        assert_eq!(far.state, "bad-address");
+        assert_eq!(far.message, "Roni only connects to this computer (127.0.0.1).");
+        assert!(!format!("{far:?}").contains("secret-token"));
+        assert_eq!(block_on(roni_status("file:///etc")).state, "bad-address");
     }
 
     #[test]

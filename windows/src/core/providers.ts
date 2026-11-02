@@ -6,7 +6,7 @@ import type { Settings } from "./state";
 import { N_ } from "../i18n/i18n";
 
 export type ProviderId =
-  | "anthropic" | "openai" | "google" | "openrouter"
+  | "roni" | "anthropic" | "openai" | "google" | "openrouter"
   | "ollama" | "lmstudio" | "custom";
 
 export interface ProviderDef {
@@ -17,13 +17,15 @@ export interface ProviderDef {
   /** Credential store entry of its key; null for the model servers. */
   key: string | null;
   /** Settings field holding a model server's address. */
-  urlField: "ollamaUrl" | "lmstudioUrl" | "customUrl" | null;
+  urlField: "roniUrl" | "ollamaUrl" | "lmstudioUrl" | "customUrl" | null;
   defaultModel: string;
   /** When the saved model is not offered, the first one containing this is picked. */
   prefer: string | null;
 }
 
 export const PROVIDERS: readonly ProviderDef[] = [
+  // Roni himself: the OpenClaw gateway on this computer. One agent, so no model to pick.
+  { id: "roni", name: "Roni", accent: "#EEE3D3", key: null, urlField: "roniUrl", defaultModel: "openclaw/default", prefer: null },
   { id: "anthropic", name: "Anthropic", accent: "#E07950", key: "anthropic-api-key", urlField: null, defaultModel: "claude-opus-5", prefer: "opus" },
   { id: "google", name: "Google", accent: "#4285F4", key: "google-api-key", urlField: null, defaultModel: "gemini-2.0-flash", prefer: "flash" },
   { id: "openai", name: "OpenAI", accent: "#10A37F", key: "openai-api-key", urlField: null, defaultModel: "gpt-4o", prefer: "mini" },
@@ -35,6 +37,8 @@ export const PROVIDERS: readonly ProviderDef[] = [
 
 /** Credential store entry of the custom server's optional key. */
 export const CUSTOM_SERVER_KEY = "openai-compatible-key";
+/** Credential store entry of Roni's gateway token (Rust binds it to the address). */
+export const RONI_TOKEN_KEY = "roni-gateway-token";
 
 export function providerDef(id: string): ProviderDef {
   return PROVIDERS.find((p) => p.id === id) ?? PROVIDERS[0];
@@ -54,14 +58,23 @@ export function withModel(settings: Settings, provider: ProviderId, model: strin
 }
 
 /**
- * The chips of the picker: every cloud provider (one without a key says so
- * when picked), and a model server once it is connected — or while it is the
- * active one, so the picker never hides where the chat goes.
+ * The chips of the picker. Roni alone, until Settings → Chat → Advanced turns
+ * the others on: then every cloud provider (one without a key says so when
+ * picked), and a model server once it is connected — or while it is the active
+ * one, so the picker never hides where the chat goes.
  */
 export function visibleProviders(settings: Settings): ProviderDef[] {
+  if (!settings.otherProvidersInChat && settings.chatProvider === "roni") {
+    return PROVIDERS.filter((p) => p.id === "roni");
+  }
   return PROVIDERS.filter(
-    (p) => !p.urlField || settings[p.urlField] !== "" || settings.chatProvider === p.id,
+    (p) => !p.urlField || p.id === "roni" || settings[p.urlField] !== "" || settings.chatProvider === p.id,
   );
+}
+
+/** True when the picker has nothing to offer: the chat is Roni's and that is all. */
+export function onlyRoni(settings: Settings): boolean {
+  return settings.chatProvider === "roni" && !settings.otherProvidersInChat;
 }
 
 /** The model to keep once the list arrives: the saved one if offered, else a sensible one. */

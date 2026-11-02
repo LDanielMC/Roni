@@ -130,6 +130,10 @@ export interface Settings {
   ollamaUrl: string;
   lmstudioUrl: string;
   customUrl: string;
+  /** Where Roni's gateway (OpenClaw) listens; only this computer is accepted. */
+  roniUrl: string;
+  /** Offer the providers other than Roni in the chat's picker (Settings → Chat → Advanced). */
+  otherProvidersInChat: boolean;
   /** Global shortcuts the user changed, by action id (see core/shortcuts.ts). */
   shortcuts: Bindings;
   /**
@@ -184,11 +188,13 @@ export const DEFAULT_SETTINGS: Settings = {
   showPlanInNotch: false,
   planRelayInstalled: false,
   showCodexPlanInNotch: false,
-  chatProvider: "anthropic",
+  chatProvider: "roni",
   chatModels: {},
   ollamaUrl: "",
   lmstudioUrl: "",
   customUrl: "",
+  roniUrl: "http://127.0.0.1:18789",
+  otherProvidersInChat: false,
   shortcuts: {},
   mochiOutfit: DEFAULT_OUTFIT,
   pillColors: {},

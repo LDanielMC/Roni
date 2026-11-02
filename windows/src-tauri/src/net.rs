@@ -121,6 +121,19 @@ pub fn client(url: &Url, timeout: Duration) -> Result<reqwest::Client, String> {
     builder.build().map_err(|e| e.to_string())
 }
 
+/// Like [`client`], but a redirect is an error, never followed: for what must
+/// only ever talk to the one address it was given (Roni's gateway).
+pub fn client_no_redirect(url: &Url, timeout: Duration) -> Result<reqwest::Client, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10).min(timeout))
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none());
+    if is_loopback_url(url) {
+        builder = builder.no_proxy();
+    }
+    builder.build().map_err(|e| e.to_string())
+}
+
 /// The body of `response`, refused past `limit` bytes.
 pub async fn read_capped(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>, String> {
     if response.content_length().is_some_and(|n| n > limit as u64) {

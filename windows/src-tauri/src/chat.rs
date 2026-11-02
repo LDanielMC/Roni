@@ -16,6 +16,13 @@ use crate::settings::Settings;
 use crate::{claude, local_chat, openai_compat, secrets};
 
 pub const ANTHROPIC: &str = "anthropic";
+/// Roni himself: the OpenClaw gateway on this computer (local_chat.rs).
+pub const RONI: &str = "roni";
+/// The default OpenClaw agent. Its `model` field names an agent, not a provider model
+/// (https://docs.openclaw.ai/gateway/openai-http-api, "Agent-first model contract").
+pub const RONI_MODEL: &str = "openclaw/default";
+/// Where the OpenClaw gateway listens by default.
+pub const RONI_DEFAULT_URL: &str = "http://127.0.0.1:18789";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -159,6 +166,9 @@ pub fn plain_question(first: bool, context: Option<&ChatContext>, query: &str) -
 
 /// The model chosen for `provider`, or its default.
 pub fn model_for(settings: &Settings, provider: &str) -> String {
+    if provider == RONI {
+        return RONI_MODEL.to_string();
+    }
     if provider == ANTHROPIC {
         let m = settings.model.trim();
         return if m.is_empty() { claude::DEFAULT_MODEL.to_string() } else { m.to_string() };
@@ -247,6 +257,10 @@ pub async fn send_for_phone(
 /// address): nothing is sent anywhere before that.
 pub async fn models(settings: &Settings, provider: &str) -> Result<Vec<ModelInfo>, String> {
     let no_key = || crate::i18n::t("No API key — add it in Settings.");
+    // Roni has one agent to talk to: nothing to ask the gateway.
+    if provider == RONI {
+        return Ok(vec![ModelInfo { id: RONI_MODEL.into(), label: "Roni".into() }]);
+    }
     if provider == ANTHROPIC {
         let key = secrets::get(claude::KEY).ok_or_else(no_key)?;
         return claude::models(&key).await;

@@ -4,24 +4,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  PROVIDERS, activeModel, isLoopbackHost, pickModel, providerDef, urlExposure, visibleProviders, withModel,
+  PROVIDERS, activeModel, isLoopbackHost, onlyRoni, pickModel, providerDef, urlExposure, visibleProviders, withModel,
 } from "../src/core/providers.ts";
 import { DEFAULT_SETTINGS } from "../src/core/state.ts";
 
 const settings = (over = {}) => ({ ...DEFAULT_SETTINGS, ...over });
 
 test("the ids and key names match the Rust side and the Mac", () => {
-  assert.deepEqual(PROVIDERS.map((p) => p.id), ["anthropic", "google", "openai", "openrouter", "ollama", "lmstudio", "custom"]);
+  assert.deepEqual(PROVIDERS.map((p) => p.id), ["roni", "anthropic", "google", "openai", "openrouter", "ollama", "lmstudio", "custom"]);
   assert.equal(providerDef("google").key, "google-api-key");
   assert.equal(providerDef("openai").key, "openai-api-key");
   assert.equal(providerDef("openrouter").key, "openrouter-api-key");
   assert.equal(providerDef("ollama").key, null);
-  // An unknown id (an older or newer settings.json) falls back to Claude.
-  assert.equal(providerDef("nope").id, "anthropic");
+  // An unknown id (an older or newer settings.json) falls back to Roni.
+  assert.equal(providerDef("nope").id, "roni");
 });
 
 test("Claude's model is the existing setting; the others are kept per provider", () => {
-  assert.equal(activeModel(settings()), "claude-opus-5");
+  assert.equal(activeModel(settings({ chatProvider: "anthropic" })), "claude-opus-5");
   assert.equal(activeModel(settings({ chatProvider: "google" })), "gemini-2.0-flash");
   assert.equal(activeModel(settings({ chatProvider: "ollama" })), "");
   let s = withModel(settings({ chatProvider: "openai" }), "openai", "gpt-5-mini");
@@ -34,11 +34,29 @@ test("Claude's model is the existing setting; the others are kept per provider",
   assert.deepEqual(DEFAULT_SETTINGS.chatModels, {});
 });
 
+test("the chat is Roni's: his agent, no switcher, and the others only once Advanced turns them on", () => {
+  assert.equal(DEFAULT_SETTINGS.chatProvider, "roni");
+  assert.equal(DEFAULT_SETTINGS.roniUrl, "http://127.0.0.1:18789");
+  assert.equal(activeModel(settings()), "openclaw/default");
+  assert.equal(providerDef("roni").key, null);
+  const ids = (s) => visibleProviders(s).map((p) => p.id);
+  assert.deepEqual(ids(settings()), ["roni"]);
+  assert.ok(onlyRoni(settings()));
+  assert.ok(!onlyRoni(settings({ otherProvidersInChat: true })));
+  assert.ok(!onlyRoni(settings({ chatProvider: "google" })));
+  // Switched on: Roni first, then the same picker as before.
+  const all = (over) => ids(settings({ otherProvidersInChat: true, ...over }));
+  assert.deepEqual(all({}), ["roni", "anthropic", "google", "openai", "openrouter"]);
+  // Picked another provider earlier, then the switch went off: the picker never hides where the chat goes.
+  assert.deepEqual(ids(settings({ chatProvider: "openai" })), ["roni", "anthropic", "google", "openai", "openrouter"]);
+});
+
 test("model servers show in the picker once connected, or while in use", () => {
   const ids = (s) => visibleProviders(s).map((p) => p.id);
-  assert.deepEqual(ids(settings()), ["anthropic", "google", "openai", "openrouter"]);
-  assert.deepEqual(ids(settings({ ollamaUrl: "http://127.0.0.1:11434" })), ["anthropic", "google", "openai", "openrouter", "ollama"]);
-  assert.deepEqual(ids(settings({ chatProvider: "custom" })), ["anthropic", "google", "openai", "openrouter", "custom"]);
+  const on = { otherProvidersInChat: true };
+  assert.deepEqual(ids(settings({ ...on })), ["roni", "anthropic", "google", "openai", "openrouter"]);
+  assert.deepEqual(ids(settings({ ...on, ollamaUrl: "http://127.0.0.1:11434" })), ["roni", "anthropic", "google", "openai", "openrouter", "ollama"]);
+  assert.deepEqual(ids(settings({ ...on, chatProvider: "custom" })), ["roni", "anthropic", "google", "openai", "openrouter", "custom"]);
 });
 
 test("the saved model is kept when offered, else a sensible one is picked", () => {

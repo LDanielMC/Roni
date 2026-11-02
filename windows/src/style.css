@@ -1200,6 +1200,70 @@ input[type="range"]::-webkit-slider-thumb {
   opacity: 0.6;
 }
 
+/* Roni alone: a label, not a switcher. */
+.model-btn.static:disabled {
+  opacity: 1;
+}
+
+.model-btn.static svg {
+  display: none;
+}
+
+/* ── Roni's gateway: the chat's banner (token the first time, or "not answering") ── */
+
+.roni-banner {
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(245, 165, 36, 0.12);
+  color: var(--ink-2);
+  font: 400 11.5px/1.35 var(--font);
+}
+
+.roni-banner.on {
+  display: flex;
+}
+
+.roni-banner .roni-form {
+  display: flex;
+  gap: 6px;
+}
+
+.roni-banner input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font: 400 12px var(--font);
+  outline: none;
+  cursor: text;
+}
+
+.roni-banner button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #0b0c0e;
+  font: 500 11.5px var(--font);
+  cursor: default;
+}
+
+.roni-banner button:disabled {
+  opacity: 0.6;
+}
+
+.roni-banner .roni-hint {
+  color: var(--dim-3);
+  font-size: 10.5px;
+  user-select: text;
+}
+
 .model-dot {
   flex: 0 0 6px;
   width: 6px;
