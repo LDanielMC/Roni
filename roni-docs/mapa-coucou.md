@@ -100,7 +100,7 @@ Todo en `src-tauri/src/flow/`.
 - **Por qué no pega en el chat de la isla (hipótesis, no probado en la laptop):** al empezar a grabar se guarda la app que está al frente
   (`flow/mod.rs:325`) descartando las "de escritorio" con `is_shell()` (`flow/mod.rs:95`), que incluye `coucou` (el propio programa).
   Además la isla se crea con `focus: false` (`tauri.conf.json`). Dos candidatos: (a) la isla no tiene el foco de Windows cuando se dicta, así que
-  Ctrl+V cae en otra app; (b) el chat no recibe el texto aunque llegue al portapapeles. Hay que mirar el registro (`log`) y probarlo en la Rebanada 4.
+  Ctrl+V cae en otra app; (b) el chat no recibe el texto aunque llegue al portapapeles. Hay que mirar el registro (`log`) y probarlo en la Rebanada 4. **Rebanada 4:** el dictado ya no pega en el chat sino que le entrega el texto (`chat_input_focus`, `flow-text`, `deliver_to_chat` en `flow/mod.rs`; botón en `src/views/chat.ts`).
 - La pastilla de estado del dictado: `flow/pill.rs` + `src/pill/main.ts`. Ajustes del dictado: `src/hub/pages/dictation.ts`, `flowsettings.ts`.
 - Notas / grabación de llamadas: `src-tauri/src/notes/`, `src/hub/pages/notes.ts` (no se toca).
 

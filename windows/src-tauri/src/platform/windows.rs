@@ -32,7 +32,7 @@ use ::windows::Win32::UI::Shell::{
     ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC,
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
-    EnumChildWindows, EnumWindows, GetClassNameW, GetCursorPos, GetWindow, GetWindowLongPtrW,
+    EnumChildWindows, EnumWindows, GetClassNameW, GetCursorPos, GetForegroundWindow, GetWindow, GetWindowLongPtrW,
     GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible, SetForegroundWindow,
     SetWindowLongPtrW, ShowWindow, GWL_EXSTYLE, GW_OWNER, SW_RESTORE, SW_SHOWNORMAL, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW,
@@ -333,6 +333,12 @@ pub fn make_non_activating(win: &WebviewWindow) {
         let want = ex | WS_EX_NOACTIVATE.0 as isize | WS_EX_TOOLWINDOW.0 as isize;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, want);
     }
+}
+
+/// Whether `win` is the window Windows has in front (it has the keyboard).
+pub fn is_foreground(win: &WebviewWindow) -> bool {
+    let Some(hwnd) = hwnd_of(win) else { return false };
+    unsafe { GetForegroundWindow() == hwnd }
 }
 
 /// Temporarily allow activation so a text field inside the island can be typed in.

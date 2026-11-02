@@ -113,6 +113,46 @@ fn is_terminal(id: &str) -> bool {
     }
 }
 
+// ── The island's chat ─────────────────────────────────────────────────────────
+//
+// When the chat's text field has the keyboard, what you dictate goes into the
+// field as text, straight from here: no clipboard, no Ctrl+V sent to whichever
+// window Windows thinks is in front. The field reports its focus (`chat_input_focus`).
+
+static CHAT_FOCUS: AtomicBool = AtomicBool::new(false);
+
+pub fn chat_focused() -> bool {
+    CHAT_FOCUS.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
+pub fn chat_input_focus(focused: bool) {
+    CHAT_FOCUS.store(focused, Ordering::Relaxed);
+}
+
+/// What the chat's microphone button shows: the phase of the dictation and whether it is on.
+#[derive(Serialize, Clone, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DictationState {
+    pub phase: String,
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn dictation_state(app: AppHandle) -> DictationState {
+    let s = pill::get(&app).map(|p| p.state()).unwrap_or_default();
+    DictationState { phase: if s.phase.is_empty() { "idle".into() } else { s.phase }, enabled: s.enabled }
+}
+
+/// Hands the words to the chat's text field, and says whether it could. Only when
+/// the island is the window with the keyboard too: the field's own report can be
+/// stale (a page reloaded with the field focused), and a dictation meant for
+/// Notepad or the big window must never land in the island instead.
+fn deliver_to_chat(app: &AppHandle, text: &str) -> bool {
+    let Some(island) = crate::island::window(app) else { return false };
+    crate::platform::is_foreground(&island) && app.emit_to(crate::island::WINDOW_LABEL, "flow-text", text).is_ok()
+}
+
 // ── Setup, on and off ─────────────────────────────────────────────────────────
 
 pub fn setup(app: &AppHandle) {
@@ -398,7 +438,12 @@ fn process(app: &AppHandle, flow: &Arc<Flow>, samples: &[f32], front: Option<&(S
 
     os::wait_key_released(key);
     let terminal = front.is_some_and(|(id, _)| is_terminal(id));
-    let outcome = paste::paste(&final_text, terminal);
+    // The chat's text field has the keyboard: the words go into it, not onto the clipboard.
+    let outcome = if chat_focused() && deliver_to_chat(app, &final_text) {
+        paste::Outcome::Pasted
+    } else {
+        paste::paste(&final_text, terminal)
+    };
     let entry = {
         let mut store = flow.store.lock().unwrap();
         store.record(&final_text, front.map(|(_, n)| n.as_str()), seconds, store::today(), store::now_ms())
@@ -702,5 +747,26 @@ pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: O
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+
+    #[test]
+    fn the_chat_field_says_when_it_has_the_keyboard_and_when_it_lets_go() {
+        chat_input_focus(false);
+        assert!(!chat_focused());
+        chat_input_focus(true);
+        assert!(chat_focused());
+        chat_input_focus(false);
+        assert!(!chat_focused());
+    }
+
+    #[test]
+    fn the_island_hears_the_phase_in_the_shape_the_page_reads() {
+        let s = DictationState { phase: "locked".into(), enabled: true };
+        assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::json!({ "phase": "locked", "enabled": true }));
     }
 }

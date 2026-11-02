@@ -9,7 +9,7 @@
 import { h, svg, clear } from "./dom";
 import { ICONS } from "./icons";
 import { renderMarkdown } from "./markdown";
-import { Bridge, onEvent, type ChatContext, type ModelInfo, type RoniStatus } from "../core/bridge";
+import { Bridge, onEvent, type ChatContext, type DictationState, type ModelInfo, type RoniStatus } from "../core/bridge";
 import {
   activeModel, onlyRoni, pickModel, providerDef, visibleProviders, withModel, type ProviderDef,
 } from "../core/providers";
@@ -27,6 +27,8 @@ const STRINGS = {
   loading: N_("Loading models…"),
   noKey: N_("No API key — add it in Settings."),
   openSettings: N_("Open Settings"),
+  dictate: N_("Dictate"),
+  stopDictating: N_("Done — write what you said"),
   askToken: N_("Paste Roni's gateway token to start chatting."),
   tokenPlaceholder: N_("Gateway token"),
   connect: N_("Connect"),
@@ -220,7 +222,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     spellcheck: "false",
   }) as HTMLInputElement;
   const send = h("button", { class: "send-btn", title: tl(STRINGS.send) }, svg(ICONS.arrowUp, 11));
-  const bar = h("div", { class: "chat-bar" }, input, send);
+  // The microphone: dictation into this field, without the dictation key. Hidden while dictation is off.
+  const mic = h("button", { class: "mic-btn", title: tl(STRINGS.dictate) }, svg(ICONS.mic, 13, { stroke: 2 }));
+  const bar = h("div", { class: "chat-bar" }, input, mic, send);
 
   const modelDot = h("i", { class: "model-dot" });
   const modelName = h("span", { class: "model-name" });
@@ -426,6 +430,61 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     log.scrollTop = log.scrollHeight;
   });
 
+  // ── Dictation into this field ──
+
+  let dictation: DictationState = { phase: "idle", enabled: false };
+
+  function drawMic() {
+    const active = dictation.phase === "listening" || dictation.phase === "locked";
+    mic.classList.toggle("off", !dictation.enabled);
+    mic.classList.toggle("live", active);
+    mic.classList.toggle("busy", dictation.phase === "thinking");
+    mic.title = tl(active ? STRINGS.stopDictating : STRINGS.dictate).toString();
+    mic.disabled = sending || dictation.phase === "thinking";
+  }
+
+  void onEvent<DictationState>("dictation-state", (state) => {
+    dictation = state;
+    drawMic();
+  });
+  void Bridge.dictationState().then((state) => {
+    if (state) {
+      dictation = state;
+      drawMic();
+    }
+  });
+
+  // Clicking the button must not take the keyboard from the field: that is where the words go.
+  mic.addEventListener("mousedown", (e) => e.preventDefault());
+  mic.addEventListener("click", () => {
+    if (mic.disabled || !dictation.enabled) return;
+    void Bridge.dictationAction(dictation.phase === "listening" || dictation.phase === "locked" ? "finish" : "dictate");
+    input.focus();
+  });
+
+  // What was said arrives as text, at the caret, for the person to read before sending.
+  void onEvent<string>("flow-text", (text) => {
+    if (!text) return; // even mid-send: Rust already told the pill it was written
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const before = input.value.slice(0, start);
+    const lead = before !== "" && !/\s$/.test(before) && !/^\s/.test(text) ? " " : "";
+    input.setRangeText(lead + text, start, end, "end");
+    input.focus();
+  });
+
+  // Dictation goes into the field only while it really has the keyboard.
+  let reportedFocus = false;
+  // A page that was here before (a reload, a crashed webview) may have left Rust's flag on.
+  void Bridge.chatInputFocus(false);
+  const reportFocus = (on: boolean) => {
+    if (on === reportedFocus) return;
+    reportedFocus = on;
+    void Bridge.chatInputFocus(on);
+  };
+  input.addEventListener("focus", () => reportFocus(true));
+  input.addEventListener("blur", () => reportFocus(false));
+
   async function submit() {
     const query = input.value.trim();
     if (!query || sending) return;
@@ -510,11 +569,20 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       syncGateway();
 
       input.placeholder = t(State.chatHistory.length === 0 ? STRINGS.placeholderFirst : STRINGS.placeholderNext);
-      input.disabled = sending;
+      // Read-only, not disabled: a disabled field loses the keyboard in the browser, and with it
+      // the dictation (and the focus the next message needs).
+      input.readOnly = sending;
+      drawMic();
+      // What is true now, both ways: a folded island can leave the field focused in the page, and
+      // reopening it then raises no `focus` event.
+      reportFocus(chatShown() && document.activeElement === input && document.hasFocus());
     },
     focus() {
       input.focus();
       input.select();
+    },
+    blur() {
+      input.blur();
     },
   };
 }

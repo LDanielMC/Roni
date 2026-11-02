@@ -223,6 +223,13 @@ export const Bridge = {
   /** Give the window keyboard focus (chat field) and take it away again. */
   focusWindow: (focused: boolean) => call<void>("focus_window", { focused }),
 
+  /** The chat's text field has (or lost) the keyboard: dictation then goes into it as text. */
+  chatInputFocus: (focused: boolean) => call<void>("chat_input_focus", { focused }),
+  /** Where the dictation is, for the chat's microphone button. */
+  dictationState: () => call<DictationState>("dictation_state"),
+  /** The chat's microphone button: "dictate" starts hands-free, "finish" ends it, "cancel" drops it. */
+  dictationAction: (action: "dictate" | "finish" | "cancel") => call<void>("pill_action", { action, id: null }),
+
   reposition: () => call<void>("reposition"),
   fitZoom: (dpr: number) => call<boolean>("fit_zoom", { dpr }),
 
@@ -551,6 +558,12 @@ export interface LocalServer {
   models: string[];
   /** The address is this machine. */
   loopback: boolean;
+}
+
+/** "idle", "listening", "locked", "thinking"…; `enabled` is dictation switched on in Settings. */
+export interface DictationState {
+  phase: string;
+  enabled: boolean;
 }
 
 /** How Roni's gateway (OpenClaw) answers: what Settings and the chat's banner show. */

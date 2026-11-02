@@ -965,6 +965,8 @@ pub fn run() {
             flow::pill_hot,
             flow::pill_hover,
             flow::pill_action,
+            flow::chat_input_focus,
+            flow::dictation_state,
             notes::notes_state,
             notes::notes_start,
             notes::notes_stop,

@@ -363,3 +363,159 @@ test("a slow answer that lands while another provider is picked does not leave R
   assert.ok($(".roni-banner").classList.contains("on"), "OpenClaw is down and the chat says so");
   leave();
 });
+
+// ── Dictation into the chat ───────────────────────────────────────────────────
+
+/** A chat that is on screen, with a text field whose value and caret the tests can set. */
+function dictChat(enabled = true, phase = "idle") {
+  answers.dictation_state = { phase, enabled };
+  answers.roni_status = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
+  roniChat();
+  const input = $(".chat-input");
+  // The page's own idea of focus, which the fake DOM does not have.
+  document.hasFocus = () => true;
+  document.activeElement = input;
+  // The browser's rules the fake DOM lacks: a disabled field cannot take the keyboard, and
+  // disabling a focused one takes it away.
+  input.blur = () => {
+    if (document.activeElement === input) document.activeElement = null;
+    input.fire("blur");
+  };
+  input.focus = () => {
+    if (input.disabled || document.activeElement === input) return;
+    document.activeElement = input;
+    input.fire("focus");
+  };
+  let disabled = false;
+  Object.defineProperty(input, "disabled", {
+    get: () => disabled,
+    set: (on) => {
+      disabled = Boolean(on);
+      if (disabled && document.activeElement === input) input.blur();
+    },
+  });
+  input.selectionStart = input.selectionEnd = null;
+  input.setRangeText = (text, start, end) => {
+    input.value = input.value.slice(0, start) + text + input.value.slice(end);
+    input.selectionStart = input.selectionEnd = start + text.length;
+  };
+  return input;
+}
+
+test("the chat's microphone shows only while dictation is on", async () => {
+  dictChat(false);
+  await flush();
+  assert.ok($(".mic-btn").classList.contains("off"));
+  leave();
+  dictChat(true);
+  await flush();
+  assert.ok(!$(".mic-btn").classList.contains("off"));
+  leave();
+});
+
+test("the microphone starts the dictation, and while it listens the same button finishes it", async () => {
+  dictChat(true, "idle");
+  await flush();
+  $(".mic-btn").fire("click");
+  assert.deepEqual(sent("pill_action"), [{ action: "dictate", id: null }]);
+  emit("dictation-state", { phase: "locked", enabled: true });
+  assert.ok($(".mic-btn").classList.contains("live"));
+  $(".mic-btn").fire("click");
+  assert.deepEqual(sent("pill_action").at(-1), { action: "finish", id: null });
+  emit("dictation-state", { phase: "thinking", enabled: true });
+  assert.ok($(".mic-btn").disabled, "nothing to press while the words are being written");
+  assert.ok(!$(".mic-btn").classList.contains("live"));
+  leave();
+});
+
+test("pressing the microphone does not take the keyboard from the field", async () => {
+  dictChat();
+  await flush();
+  const down = $(".mic-btn").fire("mousedown");
+  assert.ok(down.defaultPrevented);
+  leave();
+});
+
+test("what is dictated lands in the field at the caret, with a space between words", async () => {
+  const input = dictChat();
+  await flush();
+  input.value = "Hola";
+  input.selectionStart = input.selectionEnd = 4;
+  emit("flow-text", "qué tal");
+  assert.equal(input.value, "Hola qué tal");
+  // Nothing doubled when the field already ends in a space, or is empty.
+  input.value = "Hola ";
+  input.selectionStart = input.selectionEnd = 5;
+  emit("flow-text", "otra vez");
+  assert.equal(input.value, "Hola otra vez");
+  input.value = "";
+  input.selectionStart = input.selectionEnd = 0;
+  emit("flow-text", "primero");
+  assert.equal(input.value, "primero");
+  // It is only written: sending is up to the person.
+  assert.deepEqual(sent("chat_send"), []);
+  leave();
+});
+
+test("the field tells Rust when it has the keyboard and when it does not", async () => {
+  const input = dictChat();
+  await flush();
+  assert.deepEqual(sent("chat_input_focus")[0], { focused: false }, "a flag left on by an earlier page is cleared at once");
+  calls.length = 0;
+  input.fire("focus");
+  input.fire("blur");
+  assert.deepEqual(sent("chat_input_focus"), [{ focused: true }, { focused: false }]);
+  leave();
+});
+
+test("leaving the chat for another view lets go of the keyboard the way the island does it", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("focus");
+  // The island never calls sync() on the view it leaves: it calls blur().
+  view.blur();
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: false });
+  leave();
+});
+
+test("a folded island says no, and reopening with the field still focused says yes again", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("focus");
+  State.mode = "compact";
+  view.sync();
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: false });
+  // No `focus` event this time: the field never lost it in the page.
+  State.mode = "expanded";
+  view.sync();
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: true });
+  // The window loses the keyboard to another app while the field stays "active" in the page.
+  document.hasFocus = () => false;
+  view.sync();
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: false });
+  leave();
+});
+
+test("words that arrive while a message is being sent are not lost, and the field keeps the keyboard", async () => {
+  const input = dictChat();
+  await flush();
+  input.focus();
+  let finish;
+  answers.chat_send = () => new Promise((resolve) => (finish = resolve));
+  input.value = "pregunta";
+  $(".send-btn").fire("click");
+  await flush();
+  view.sync(); // the island syncs the view on the next frame
+  assert.equal(input.value, "");
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: true }, "still the keyboard's while the answer comes");
+  emit("flow-text", "y otra cosa");
+  assert.equal(input.value, "y otra cosa");
+  finish({ text: "ok" });
+  await flush();
+  view.sync();
+  assert.deepEqual(sent("chat_input_focus").at(-1), { focused: true }, "and after it, for the next dictation");
+  assert.equal(document.activeElement, input);
+  leave();
+});

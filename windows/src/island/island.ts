@@ -1267,6 +1267,9 @@ export class Island {
         void Bridge.focusWindow(true);
         window.setTimeout(() => this.views.get("prompt")?.focus?.(), 120);
       } else if (wasChat) {
+        // The other views stay in the page, only see-through: the chat's field must let go of
+        // the keyboard, or dictation would be written into a field nobody can see.
+        this.views.get("prompt")?.blur?.();
         void Bridge.focusWindow(false);
       }
     }

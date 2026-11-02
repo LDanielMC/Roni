@@ -533,6 +533,11 @@ pub fn pin_to_monitor(win: &WebviewWindow, x: i32, y: i32) {
     unsafe { layer::gtk_layer_set_monitor(gtk_window_ptr(&gw), mon_ptr) };
 }
 
+/// Whether `win` has the keyboard: the island is the one that takes it for its chat field.
+pub fn is_foreground(win: &WebviewWindow) -> bool {
+    win.is_focused().unwrap_or(false)
+}
+
 /// Temporarily allow keyboard focus so a text field inside the island can be
 /// typed in.
 pub fn set_activating(win: &WebviewWindow, activating: bool) {

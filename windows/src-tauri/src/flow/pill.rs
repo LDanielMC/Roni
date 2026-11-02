@@ -175,13 +175,23 @@ pub fn edge_name(edge: Edge) -> &'static str {
 /// Changes what the pill shows, and shows or hides it.
 pub fn update(app: &AppHandle, change: impl FnOnce(&mut PillState)) {
     let Some(pill) = get(app) else { return };
-    let (state, edge_changed) = {
+    let state = {
         let mut s = pill.state.lock().unwrap();
         let edge_before = s.edge.clone();
+        let before = (s.phase.clone(), s.enabled);
         change(&mut s);
-        (s.clone(), s.edge != edge_before)
+        (s.clone(), s.edge != edge_before, before != (s.phase.clone(), s.enabled))
     };
+    let (state, edge_changed, dictation_changed) = (state.0, state.1, state.2);
     let _ = app.emit_to(LABEL, "pill-state", &state);
+    if dictation_changed {
+        // The island's chat has a microphone button of its own.
+        let _ = app.emit_to(
+            crate::island::WINDOW_LABEL,
+            "dictation-state",
+            super::DictationState { phase: state.phase.clone(), enabled: state.enabled },
+        );
+    }
     let visible = state.enabled || state.note_started_at.is_some() || state.announcement.is_some() || state.voice.is_some() || state.phase != "idle";
     let was = pill.shown.swap(visible, Ordering::Relaxed);
     if visible && (!was || edge_changed) {

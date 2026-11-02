@@ -6351,6 +6351,32 @@
       "id": "Ngobrol dengan Roni dari pulau.",
       "de": "Chatte mit Roni direkt von der Insel.",
       "tr": "Adadan Roni ile sohbet et."
+    },
+    "Dictate": {
+      "zh-Hans": "听写",
+      "hi": "बोलकर लिखें",
+      "es": "Dictar",
+      "ar": "إملاء",
+      "fr": "Dicter",
+      "bn": "বলে লিখুন",
+      "pt-BR": "Ditar",
+      "ru": "Диктовать",
+      "id": "Dikte",
+      "de": "Diktieren",
+      "tr": "Dikte et"
+    },
+    "Done — write what you said": {
+      "zh-Hans": "完成 — 写出你说的话",
+      "hi": "हो गया — जो कहा उसे लिखें",
+      "es": "Listo: escribe lo que dije",
+      "ar": "تم — اكتب ما قلته",
+      "fr": "Terminé : écris ce que j'ai dit",
+      "bn": "হয়েছে — যা বলেছি তা লিখুন",
+      "pt-BR": "Pronto: escreva o que eu disse",
+      "ru": "Готово — записать сказанное",
+      "id": "Selesai — tulis yang saya ucapkan",
+      "de": "Fertig – schreib, was ich gesagt habe",
+      "tr": "Bitti — söylediğimi yaz"
     }
   }
 }
