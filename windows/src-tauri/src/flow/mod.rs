@@ -394,6 +394,7 @@ fn finish(app: &AppHandle, flow: &Arc<Flow>, mut l: Listening, busy: Arc<AtomicB
     };
     // Too short or silent: nothing to send to the model.
     if samples.len() < 16_000 / 4 || peak < 0.004 {
+        crate::log::line(format!("flow: nothing to transcribe ({} samples, {seconds:.1}s held, peak {peak:.4})", samples.len()));
         pill::update(app, |s| s.phase = "idle".into());
         return;
     }
@@ -417,6 +418,7 @@ fn process(app: &AppHandle, flow: &Arc<Flow>, samples: &[f32], front: Option<&(S
     let transcript = speech::transcribe(samples).ok_or("the voice model is not loaded")?;
     let raw = transcript.text.trim().to_string();
     if raw.is_empty() {
+        crate::log::line(format!("flow: the model heard no words ({seconds:.1}s held, {:?} to decode)", started.elapsed()));
         pill::update(app, |s| s.phase = "idle".into());
         return Ok(());
     }
