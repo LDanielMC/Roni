@@ -77,3 +77,10 @@
   El texto no se envía solo: Dani lo lee y pulsa Enter.
   **No verificado (Rebanada 4):** nadie dictó por voz en la laptop (ni con Ctrl derecho ni con el botón); no se comprobó que WebView2 dispare `focus`/`blur` al activar y desactivar la isla (la bandera depende de eso, y por eso se recalcula en cada `sync()` y se exige además que la isla sea la ventana al frente);
   tampoco se probó que el dictado a otras apps siga funcionando con el chat abierto o plegado.
+- **Aviso cuando Roni no se puede alcanzar (tras la Rebanada 4):** Dani notó que, con Ubuntu/OpenClaw apagado, el dictado con Ctrl derecho "falla sin avisar". **Lo que se encontró:** el dictado es local (Parakeet) y en el código no hay ninguna conexión entre él y OpenClaw; el registro muestra que transcribe bien.
+  **Causa de lo que vio Dani: no confirmada.** Un hueco que sí había en el chat: si OpenClaw respondía al abrirlo y luego se apagaba Ubuntu, el chat no volvía a preguntar y no decía nada hasta que se enviaba un mensaje. Ahora el chat comprueba **cada vez que se abre**,
+  cada 30 s mientras está abierto y todo va bien (cada 8 s si ya estaba mal), y **al instante** cuando empieza un dictado y cuando llegan las palabras, así el aviso ("No se puede llegar a Roni… ¿Está funcionando OpenClaw?") aparece antes de enviar. Las palabras dictadas siguen llegando al campo aunque Roni esté apagado.
+  **No verificado:** no se reprodujo el caso con Ubuntu apagado de verdad ni se dictó por voz; si el dictado a otras apps (Bloc de notas, etc.) también falla con Ubuntu apagado, la causa es otra y hay que mirar el registro.
+  **Otra explicación posible, sin cambiar nada (propuesta para que Dani decida):** un dictado demasiado corto o en silencio termina sin texto y sin ningún aviso; en `roni.log` del 2026-11-02 hay dos tomas así (18:14:14 y 18:16:38: "audio: buffer underrun" sin línea "flow:" después),
+  y eso encaja con "falla sin avisar" esté o no apagado Ubuntu. Se puede añadir un aviso en la pastilla ("no te oí") si Dani lo quiere.
+  **Para la Rebanada 6:** despertar Ubuntu automáticamente al arrancar Roni (ver el plan).

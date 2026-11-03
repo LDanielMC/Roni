@@ -39,6 +39,8 @@ const STRINGS = {
 
 /** How often the chat asks again while Roni's gateway does not answer. */
 const GATEWAY_RETRY_MS = 8000;
+/** While all is well, how often an open chat still checks that Roni can be reached (Ubuntu may have been shut down). */
+const GATEWAY_RECHECK_MS = 30000;
 
 let nextId = 1;
 
@@ -284,13 +286,14 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   const chatShown = () => State.view === "prompt" && State.mode === "expanded";
 
   /**
-   * Asks again later, but only while the chat is shown and Roni is not answering.
+   * Asks again later, always and only while the chat is shown: every 30 s while all is
+   * well (Ubuntu may have been shut down), every 8 s while Roni is not answering.
    * A refused token is not retried (it would only be refused again, and the
    * gateway may rate-limit failures): a new token, or reopening the chat, asks again.
    */
   function scheduleRetry() {
     stopRetry();
-    if (!wantsGateway() || !chatShown() || gateway === "ok" || gateway === "bad-token") return;
+    if (!wantsGateway() || !chatShown() || gateway === "bad-token") return;
     retry = setTimeout(() => {
       retry = null;
       // The island does not tell this view when it is left: look again before asking.
@@ -299,7 +302,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
         return;
       }
       void checkGateway();
-    }, GATEWAY_RETRY_MS);
+    }, gateway === "ok" ? GATEWAY_RECHECK_MS : GATEWAY_RETRY_MS);
   }
 
   /** What the banner shows now: a retry that finds the same thing must not rebuild it (and lose the typing). */
@@ -368,9 +371,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   }
 
   /**
-   * Roni's gateway: asked when the chat is shown (again each time it is reopened
-   * unless all was well), then again only while it is not answering. Another
-   * provider's chat shows nothing of it.
+   * Roni's gateway: asked every time the chat is opened (an old "ok" proves nothing: Ubuntu may
+   * have been shut down meanwhile), then again on the timer of scheduleRetry while it stays
+   * on screen, and when a dictation starts (checkNow). Another provider's chat shows nothing of it.
    */
   function syncGateway() {
     if (!wantsGateway()) {
@@ -387,9 +390,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     }
     const shown = chatShown();
     if (shown) {
-      if (!wasShown && gateway !== "ok" && !checking) void checkGateway();
+      if (!wasShown && !checking) void checkGateway();
       else if (gateway === "unknown" && !checking) void checkGateway();
-      else if (gateway !== "ok" && retry === null && !checking) scheduleRetry();
+      else if (retry === null && !checking) scheduleRetry();
     } else {
       stopRetry();
     }
@@ -443,9 +446,16 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     mic.disabled = sending || dictation.phase === "thinking";
   }
 
+  /** Asks now whether Roni can be reached, if the chat is on screen and is Roni's: dictating into it says so before anything is sent. */
+  function checkNow() {
+    if (wantsGateway() && chatShown() && !checking) void checkGateway();
+  }
+
   void onEvent<DictationState>("dictation-state", (state) => {
+    const started = (state.phase === "listening" || state.phase === "locked") && state.phase !== dictation.phase;
     dictation = state;
     drawMic();
+    if (started) checkNow();
   });
   void Bridge.dictationState().then((state) => {
     if (state) {
@@ -465,6 +475,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   // What was said arrives as text, at the caret, for the person to read before sending.
   void onEvent<string>("flow-text", (text) => {
     if (!text) return; // even mid-send: Rust already told the pill it was written
+    checkNow();
     const start = input.selectionStart ?? input.value.length;
     const end = input.selectionEnd ?? start;
     const before = input.value.slice(0, start);

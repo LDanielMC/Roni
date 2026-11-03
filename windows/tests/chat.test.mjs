@@ -394,6 +394,7 @@ function dictChat(enabled = true, phase = "idle") {
       if (disabled && document.activeElement === input) input.blur();
     },
   });
+  input.value ??= ""; // a real field starts empty
   input.selectionStart = input.selectionEnd = null;
   input.setRangeText = (text, start, end) => {
     input.value = input.value.slice(0, start) + text + input.value.slice(end);
@@ -517,5 +518,63 @@ test("words that arrive while a message is being sent are not lost, and the fiel
   view.sync();
   assert.deepEqual(sent("chat_input_focus").at(-1), { focused: true }, "and after it, for the next dictation");
   assert.equal(document.activeElement, input);
+  leave();
+});
+
+// ── Roni switched off after the chat was opened ───────────────────────────────
+
+test("an open chat keeps checking, slowly, that Roni can be reached", async () => {
+  answers.roni_status = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
+  const timers = [];
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms, ...a) => { if (ms >= 1000) { timers.push(ms); return 0; } return real(fn, ms, ...a); };
+  try {
+    roniChat();
+    await flush();
+    assert.deepEqual(timers, [30000]);
+    assert.ok(!$(".roni-banner").classList.contains("on"));
+  } finally {
+    globalThis.setTimeout = real;
+    leave();
+  }
+});
+
+test("Ubuntu shut down after the chat opened: the next dictation says so before anything is sent", async () => {
+  const input = dictChat(true, "idle");
+  await flush();
+  assert.ok(!$(".roni-banner").classList.contains("on"));
+  assert.equal(sent("roni_status").length, 1);
+  // OpenClaw goes away; nothing in the chat changes by itself yet.
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  // Dictation starts (the key or the button): the chat looks.
+  emit("dictation-state", { phase: "listening", enabled: true });
+  await flush();
+  assert.equal(sent("roni_status").length, 2);
+  assert.ok($(".roni-banner").classList.contains("on"));
+  assert.match($(".roni-banner").textContent, /Is OpenClaw running\?/);
+  // The words still arrive in the field: the dictation itself never needed Roni.
+  emit("flow-text", "hola");
+  assert.equal(input.value, "hola");
+  // The same phase twice is one look, not two.
+  emit("dictation-state", { phase: "listening", enabled: true });
+  await flush();
+  assert.equal(sent("roni_status").length, 3, "only the arrival of the words asked again");
+  leave();
+});
+
+test("reopening the chat looks again even when the last look said all was well", async () => {
+  answers.roni_status = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
+  roniChat();
+  await flush();
+  assert.equal(sent("roni_status").length, 1);
+  State.mode = "compact";
+  view.sync();
+  // Ubuntu is shut down while the island is folded away.
+  answers.roni_status = { state: "unreachable", url: "http://127.0.0.1:18789", message: "Cannot reach Roni at http://127.0.0.1:18789. Is OpenClaw running?" };
+  State.mode = "expanded";
+  view.sync();
+  await flush();
+  assert.equal(sent("roni_status").length, 2);
+  assert.ok($(".roni-banner").classList.contains("on"));
   leave();
 });

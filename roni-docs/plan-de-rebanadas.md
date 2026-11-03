@@ -37,6 +37,10 @@ Cada rebanada: rama propia, revisión, commit y **detenerse** para que Dani prue
 ## Rebanada 6 — Instalador
 - Instalador de Windows y arranque con Windows.
 - Instrucciones cortas en roni-docs para instalar y actualizar.
+- **Al arrancar Roni, despertar Ubuntu (WSL2) automáticamente**, para que OpenClaw esté disponible sin que Dani tenga que abrir Ubuntu a mano
+  (hoy, con Ubuntu apagado, el chat no puede llegar a Roni). Por investigar antes de hacerlo: cómo arrancar la distribución sin ventana y cómo esperar a que el gateway de OpenClaw responda
+  (verificar en la documentación de Microsoft y de OpenClaw, y citarla); pedir aprobación a Dani antes de tocar la configuración de OpenClaw o de WSL.
+  Mientras tanto, el chat ya avisa con claridad cuando no puede llegar a Roni.
 
 ## Después
 - App de Android para Roni.
