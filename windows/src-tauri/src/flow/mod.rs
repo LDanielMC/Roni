@@ -306,6 +306,7 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
                 }
             }
             Action::Restart => {
+                log_dropped(&listening, "restart", received.map(|(e, _)| e));
                 drop(listening.take());
                 listening = begin(&app, &flow);
                 if listening.is_none() {
@@ -314,6 +315,7 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
             }
             Action::Lock => pill::update(&app, |s| s.phase = "locked".into()),
             Action::Cancel => {
+                log_dropped(&listening, "cancelled", received.map(|(e, _)| e));
                 drop(listening.take());
                 pill::update(&app, |s| s.phase = "idle".into());
             }
@@ -332,6 +334,15 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
         }
     }
     pill::update(&app, |s| s.phase = "idle".into());
+}
+
+/// Writes down a take that was thrown away without being transcribed, so a dictation
+/// that "did nothing" leaves a trace. `cause` is the event that ended it; None is the
+/// short tap that timed out.
+fn log_dropped(listening: &Option<Listening>, what: &str, cause: Option<KeyEvent>) {
+    if let Some(l) = listening {
+        crate::log::line(format!("flow: take {what} after {:.1}s ({cause:?})", l.started.elapsed().as_secs_f64()));
+    }
 }
 
 /// Opens the microphone. None (and the pill says why) when it can't.
