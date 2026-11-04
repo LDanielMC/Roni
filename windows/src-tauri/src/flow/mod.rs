@@ -24,6 +24,7 @@ pub mod os;
 #[cfg(target_os = "linux")]
 pub mod wayland;
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -48,9 +49,9 @@ pub enum KeyEvent {
     Escape,
     /// The pill's microphone: hands-free straight away.
     HandsFree,
-    /// The pill's âœ“: paste now.
+    /// The pill's ✓: paste now.
     Finish,
-    /// The pill's âœ•.
+    /// The pill's ✕.
     Cancel,
     /// The chat's text field saw the dictation key go down / up: a second pair of eyes for
     /// when the global key watcher hears nothing. Dropped when the watcher reported the same press.
@@ -82,7 +83,7 @@ pub fn get(app: &AppHandle) -> Option<Arc<Flow>> {
     app.try_state::<Arc<Flow>>().map(|s| s.inner().clone())
 }
 
-/// A program's name as people know it: "outlook" â†’ "Outlook".
+/// A program's name as people know it: "outlook" → "Outlook".
 pub fn display_name(stem: &str) -> String {
     let id = stem.to_lowercase();
     if let Some(s) = store::default_app_styles().into_iter().find(|s| s.id == id) {
@@ -117,7 +118,7 @@ fn is_terminal(id: &str) -> bool {
     }
 }
 
-// â”€â”€ The island's chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── The island's chat ─────────────────────────────────────────────────────────
 //
 // When the chat's text field has the keyboard, what you dictate goes into the
 // field as text, straight from here: no clipboard, no Ctrl+V sent to whichever
@@ -140,7 +141,7 @@ pub fn chat_input_focus(focused: bool) {
 pub struct DictationState {
     pub phase: String,
     pub enabled: bool,
-    /// The dictation key as the pages write it ("right_ctrl"â€¦), so the chat's field can watch for it too.
+    /// The dictation key as the pages write it ("right_ctrl"…), so the chat's field can watch for it too.
     pub key: String,
 }
 
@@ -159,7 +160,7 @@ fn deliver_to_chat(app: &AppHandle, text: &str) -> bool {
     crate::platform::is_foreground(&island) && app.emit_to(crate::island::WINDOW_LABEL, "flow-text", text).is_ok()
 }
 
-// â”€â”€ Setup, on and off â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Setup, on and off ─────────────────────────────────────────────────────────
 
 pub fn setup(app: &AppHandle) {
     let flow = Arc::new(Flow { store: Mutex::new(Store::load()), running: Mutex::new(None) });
@@ -176,7 +177,7 @@ pub fn setup(app: &AppHandle) {
     crate::voice::sync(app);
 }
 
-/// The key as the pages write it ("right_ctrl"â€¦), or "wayland" where the
+/// The key as the pages write it ("right_ctrl"…), or "wayland" where the
 /// desktop holds the shortcut.
 fn key_id(key: logic::FlowKey) -> String {
     if os::keys_supported() == Err("wayland") {
@@ -234,7 +235,7 @@ fn disable(app: &AppHandle, flow: &Arc<Flow>) {
     }
 }
 
-// â”€â”€ The dictation thread â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── The dictation thread ──────────────────────────────────────────────────────
 
 struct Listening {
     capture: audio::Capture,
@@ -370,37 +371,51 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
 /// Whoever reports a press or a release first goes through; the other's copy, which follows a few
 /// milliseconds later, is dropped once. A copy is only dropped when the other eye reported that
 /// very kind of event first and less than `COPY_WINDOW` ago, so with one eye shut the other works
-/// alone, and a second real press is never taken for the copy of the first.
+/// alone, and a second real press is never taken for the copy of the first. Copies are kept in
+/// order, one per report, because a quick double tap can have two of them due at once when the
+/// page is a little behind.
 #[derive(Default)]
 struct KeySources {
     /// [down, up]: when the chat reported it first (the watcher's copy is due).
-    watcher_due: [Option<Instant>; 2],
+    watcher_due: [VecDeque<Instant>; 2],
     /// [down, up]: when the watcher reported it first (the chat's copy is due).
-    chat_due: [Option<Instant>; 2],
+    chat_due: [VecDeque<Instant>; 2],
+    /// What the watcher said last (true: a release), to tell a key repeat from a new press.
+    watcher_last_up: Option<bool>,
 }
 
 /// Long enough for the page to answer, short enough to be over before the next real press.
 const COPY_WINDOW: Duration = Duration::from_millis(400);
 
 impl KeySources {
-    fn key_action(&mut self, logic: &mut logic::KeyLogic, ev: KeyEvent, at: Instant, t: f64) -> Action {
+    fn key_action(&mut self, logic: &mut KeyLogic, ev: KeyEvent, at: Instant, t: f64) -> Action {
         let (from_watcher, up) = match ev {
             KeyEvent::Down => (true, false),
             KeyEvent::Up => (true, true),
             KeyEvent::ChatDown => (false, false),
             _ => (false, true),
         };
+        // The watcher repeats the press while the key is held; the chat never does, so nobody would
+        // claim a copy of a repeat, and it must not be left due (it would swallow a real press).
+        let repeat = from_watcher && !up && self.watcher_last_up == Some(false);
+        if from_watcher {
+            self.watcher_last_up = Some(up);
+        }
         let i = usize::from(up);
         let (mine, theirs) = if from_watcher {
             (&mut self.watcher_due[i], &mut self.chat_due[i])
         } else {
             (&mut self.chat_due[i], &mut self.watcher_due[i])
         };
-        let is_copy = mine.take().is_some_and(|first| at.saturating_duration_since(first) < COPY_WINDOW);
-        if is_copy {
-            return Action::None;
+        let expired = |first: &Instant| at.saturating_duration_since(*first) >= COPY_WINDOW;
+        mine.retain(|first| !expired(first));
+        theirs.retain(|first| !expired(first));
+        if mine.pop_front().is_some() {
+            return Action::None; // this is the copy of what the other eye reported first
         }
-        *theirs = Some(at);
+        if !repeat {
+            theirs.push_back(at);
+        }
         if up {
             logic.key_up(t)
         } else {
@@ -433,7 +448,7 @@ fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
             app,
             "download",
             "#3B9EFF",
-            t("Download the voice model first, in Roni â†’ Settings â†’ Recognition."),
+            t("Download the voice model first, in Roni → Settings → Recognition."),
             Some((t("Open Settings"), "openSettings")),
             10,
         );
@@ -576,7 +591,7 @@ fn paste_again(app: &AppHandle, flow: &Arc<Flow>) {
     }
 }
 
-// â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Commands ──────────────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -791,7 +806,7 @@ pub fn flow_models_remove(app: AppHandle) {
     speech::remove(&app);
 }
 
-// â”€â”€ The pill's page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── The pill's page ───────────────────────────────────────────────────────────
 
 #[tauri::command]
 pub fn pill_state(app: AppHandle) -> Option<pill::PillState> {
@@ -881,7 +896,7 @@ mod chat_tests {
     /// (counted as a Start); the rest is the dictation key.
     fn play(events: &[(KeyEvent, u64)]) -> Vec<Action> {
         let t0 = Instant::now();
-        let mut logic = logic::KeyLogic::default();
+        let mut logic = KeyLogic::default();
         let mut sources = KeySources::default();
         let mut out = Vec::new();
         for &(ev, ms) in events {
@@ -933,6 +948,12 @@ mod chat_tests {
         // A real double tap, both eyes open and very quick: the second press is not the first one's copy.
         assert_eq!(
             play(&[(Down, 0), (ChatDown, 20), (Up, 80), (ChatUp, 100), (Down, 200), (ChatDown, 220), (Up, 280), (ChatUp, 300)]),
+            [Start, Lock]
+        );
+        // The same with the page 150 ms behind (busy drawing): the copies of both presses are due at
+        // once and each is claimed by its own press, so the hands-free take is not ended by a stray copy.
+        assert_eq!(
+            play(&[(Down, 0), (Up, 80), (Down, 150), (ChatDown, 160), (ChatUp, 170), (ChatDown, 190), (Up, 230), (ChatUp, 250)]),
             [Start, Lock]
         );
     }
