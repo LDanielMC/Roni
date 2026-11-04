@@ -837,15 +837,16 @@ pub fn pill_hover(app: AppHandle, inside: bool) {
 }
 
 #[tauri::command]
-pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: Option<u64>) {
+pub fn pill_action(app: AppHandle, window: tauri::WebviewWindow, flow: State<Arc<Flow>>, action: String, id: Option<u64>) {
     let flow = flow.inner().clone();
+    let from = window.label().to_string();
     match action.as_str() {
         "dictate" => {
             if flow.running.lock().unwrap().is_none() {
                 // Dictation off: the pill only shows for a call or a message.
                 return;
             }
-            crate::log::line("flow: pill action dictate");
+            crate::log::line(format!("flow: pill action dictate ({from})"));
             flow.send(KeyEvent::HandsFree);
         }
         // The chat's field saw the dictation key (see `KeyEvent::ChatDown`); "chatKeyOther" is
@@ -860,14 +861,14 @@ pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: O
                 _ => KeyEvent::Other,
             });
         }
-        // What the pill's buttons (and the chat's microphone) ask for, written down so a click
-        // that "does nothing" shows whether it arrived.
+        // What the pill's buttons (and the chat's microphone, Esc and right Shift) ask for, written
+        // down with the window that asked, so a click that "does nothing" shows whether it arrived.
         "finish" => {
-            crate::log::line("flow: pill action finish");
+            crate::log::line(format!("flow: pill action finish ({from})"));
             flow.send(KeyEvent::Finish)
         }
         "cancel" => {
-            crate::log::line("flow: pill action cancel");
+            crate::log::line(format!("flow: pill action cancel ({from})"));
             flow.send(KeyEvent::Cancel)
         }
         "note" => crate::notes::toggle(&app),

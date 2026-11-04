@@ -85,22 +85,26 @@ fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
 
+/// The modifiers `MODS` follows, and the bit of each.
+const MOD_KEYS: [(u32, u8); 7] = [(VK_LCONTROL, 1), (VK_RCONTROL, 2), (VK_LMENU, 4), (VK_RMENU, 8), (VK_LWIN, 16), (VK_RWIN, 32), (VK_LSHIFT, 64)];
+
 /// Keeps `MODS` up to date.
 fn track_modifier(vk: u32, down: bool, up: bool) {
-    let bit = match vk {
-        VK_LCONTROL => 1,
-        VK_RCONTROL => 2,
-        VK_LMENU => 4,
-        VK_RMENU => 8,
-        VK_LWIN => 16,
-        VK_RWIN => 32,
-        VK_LSHIFT => 64,
-        _ => return,
-    };
+    let Some(&(_, bit)) = MOD_KEYS.iter().find(|(key, _)| *key == vk) else { return };
     if down {
         MODS.fetch_or(bit, Ordering::Relaxed);
     } else if up {
         MODS.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
+
+/// The hook does not see every release (Ctrl+Alt+Del, Win+L, a permission prompt, a while without
+/// keys): before trusting `MODS`, forget the keys Windows says are up.
+fn forget_released_modifiers() {
+    for (vk, bit) in MOD_KEYS {
+        if unsafe { GetAsyncKeyState(vk as i32) } as u16 & 0x8000 == 0 {
+            MODS.fetch_and(!bit, Ordering::Relaxed);
+        }
     }
 }
 
@@ -183,7 +187,12 @@ fn on_key(vk: u32, down: bool, up: bool) {
     // The repeats of a held Shift are not new presses.
     if vk == VK_RSHIFT {
         if down {
-            if !SHIFT_HELD.swap(true, Ordering::Relaxed) && MODS.load(Ordering::Relaxed) == 0 {
+            let first_press = !SHIFT_HELD.swap(true, Ordering::Relaxed);
+            // The tests pretend to hold keys that Windows knows nothing about.
+            if first_press && !cfg!(test) {
+                forget_released_modifiers();
+            }
+            if first_press && MODS.load(Ordering::Relaxed) == 0 {
                 SHIFT_DOWN_MS.store(now_ms(), Ordering::Relaxed);
                 SHIFT_TAP.store(true, Ordering::Relaxed);
             }
