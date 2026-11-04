@@ -2,7 +2,7 @@
 // Mirrors IslandRootView.swift + IslandWindowController.swift.
 
 import { Tracked, Spring, clamp } from "../core/anim";
-import { Bridge, IS_TAURI, onDragDrop } from "../core/bridge";
+import { Bridge, IS_TAURI, onDragDrop, onEvent, type DictationState } from "../core/bridge";
 import {
   EXPANDED_CORNER, EXPANDED_W, NOTCH_W, PANEL_H, PANEL_W,
   ROUNDED_CORNER, VIEW_LAYOUTS, botGlowColor, botGlowOpacity, botPosition, chatPromptHeight,
@@ -538,6 +538,11 @@ export class Island {
     this.ensureRunning();
   }
 
+  private holdForDictation(on: boolean) {
+    this.fsm.holdForDictation(on, this.wasInIsland);
+    State.notify(); // the countdown bar follows the state machine's deadline
+  }
+
   /** Ctrl+P: keep the open island from folding away, or let it fold again. */
   setPinned(on: boolean) {
     State.isPinned = on;
@@ -850,6 +855,12 @@ export class Island {
     });
 
     void onDragDrop((e) => this.onDragDrop(e));
+
+    // While a dictation is open the person speaks without touching keyboard or mouse: the island
+    // must not fold or hide for lack of activity, and counts again once it ends.
+    const dictating = (s: DictationState | null | undefined) => s?.phase === "listening" || s?.phase === "locked" || s?.phase === "thinking";
+    void onEvent<DictationState>("dictation-state", (s) => this.holdForDictation(dictating(s)));
+    void Bridge.dictationState().then((s) => this.holdForDictation(dictating(s)));
 
     // Outside Tauri (plain browser) drive the cursor from DOM events so the
     // island can be inspected with `npm run dev`.

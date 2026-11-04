@@ -377,3 +377,86 @@ test("open on hover: an island opened by an alert keeps the normal delay", () =>
   seconds(2);
   assert.equal(fsm.state, "petit");
 });
+
+// ── A dictation in progress ───────────────────────────────────────────────────
+
+test("a dictation that starts during the countdown stops it, and the open island stays as long as it lasts", () => {
+  fsm.forceHome();
+  fsm.mouseLeft();
+  seconds(10);
+  assert.ok(fsm.homeCollapseDueAt != null);
+  fsm.holdForDictation(true, false);
+  assert.equal(fsm.homeCollapseDueAt, null, "the countdown bar has nothing to count");
+  seconds(600);
+  assert.equal(fsm.state, "home", "ten minutes of speaking and no touching");
+});
+
+test("when the dictation ends the count starts again from zero, not from where it was", () => {
+  fsm.forceHome();
+  fsm.mouseLeft();
+  seconds(14);
+  fsm.holdForDictation(true, false);
+  seconds(60);
+  fsm.holdForDictation(false, false);
+  seconds(14);
+  assert.equal(fsm.state, "home", "a whole 15 s again, not the second that was left");
+  seconds(1);
+  assert.equal(fsm.state, "petit");
+});
+
+test("the mouse arriving, leaving or a new countdown being asked for does not fold the island during a dictation", () => {
+  fsm.forceHome();
+  fsm.holdForDictation(true, false);
+  fsm.mouseEntered();
+  fsm.mouseLeft(); // would arm the 15 s countdown
+  fsm.userInteracted();
+  assert.equal(fsm.homeCollapseDueAt, null, "no countdown is armed, so the bar stays empty too");
+  seconds(600);
+  assert.equal(fsm.state, "home");
+});
+
+test("a compact island does not hide during a dictation and hides 60 s after it ends", () => {
+  fsm.mouseEntered();
+  fsm.mouseLeft(); // petit, hiding in 60 s
+  seconds(30);
+  fsm.holdForDictation(true, false);
+  seconds(600);
+  assert.equal(fsm.state, "petit");
+  fsm.holdForDictation(false, false);
+  seconds(59);
+  assert.equal(fsm.state, "petit");
+  seconds(1);
+  assert.equal(fsm.state, "hidden");
+});
+
+test("a dictation that ends with the pointer on the island starts no countdown, and a pinned one stays", () => {
+  fsm.forceHome();
+  fsm.holdForDictation(true, true);
+  fsm.holdForDictation(false, true);
+  seconds(600);
+  assert.equal(fsm.state, "home");
+  fsm.mouseLeft(); // the pointer leaves later: the usual 15 s
+  seconds(15);
+  assert.equal(fsm.state, "petit");
+  fsm.forceHome();
+  fsm.pinned = true;
+  fsm.holdForDictation(true, false);
+  fsm.holdForDictation(false, false);
+  seconds(600);
+  assert.equal(fsm.state, "home");
+});
+
+test("starting or ending a dictation twice changes nothing", () => {
+  fsm.forceHome();
+  fsm.mouseLeft();
+  fsm.holdForDictation(false, false); // none was open: the countdown goes on
+  seconds(15);
+  assert.equal(fsm.state, "petit");
+  fsm.forceHome();
+  fsm.holdForDictation(true, false);
+  fsm.holdForDictation(true, false);
+  fsm.holdForDictation(false, false);
+  fsm.holdForDictation(false, false);
+  seconds(15);
+  assert.equal(fsm.state, "petit");
+});

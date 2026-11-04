@@ -48,6 +48,13 @@ export class IslandStateMachine {
    */
   homeCollapseDueAt: number | null = null;
 
+  /**
+   * A dictation is going on (hands-free, the key held, or the words being written): the
+   * person speaks and touches neither keyboard nor mouse, so nothing folds for lack of
+   * activity until it ends. See `holdForDictation`.
+   */
+  dictating = false;
+
   private homeDelay = 15;
   private byHover = false;
   private petitHide: number | null = null;
@@ -154,29 +161,47 @@ export class IslandStateMachine {
     this.transition("hidden");
   }
 
+  /**
+   * A dictation starts or ends. While it lasts the island neither folds nor hides for lack
+   * of activity (the countdown that was running is dropped); when it ends the count starts
+   * again from zero, unless the pointer is on the island, which keeps it open by itself.
+   */
+  holdForDictation(on: boolean, pointerInside: boolean) {
+    if (this.dictating === on) return;
+    this.dictating = on;
+    if (on) {
+      this.clear("petitHide");
+      this.clear("homeCollapse");
+      return;
+    }
+    if (pointerInside || this.pinned) return;
+    if (this.state === "home") this.scheduleHomeCollapse();
+    else if (this.state === "petit") this.schedulePetitHide();
+  }
+
   // ── Timers ──────────────────────────────────────────────────────────────────
 
   private schedulePetitHide() {
     this.clear("petitHide");
     // A card folded away while it waits for an answer keeps the compact island
     // on screen, so it can be reopened (isHeldOpen on macOS).
-    if (this.pinned) return;
+    if (this.pinned || this.dictating) return;
     this.petitHide = window.setTimeout(() => {
       this.petitHide = null;
-      if (this.state === "petit" && !this.pinned) this.transition("hidden");
+      if (this.state === "petit" && !this.pinned && !this.dictating) this.transition("hidden");
     }, this.petitToHiddenDelay * 1000);
   }
 
   private scheduleHomeCollapse() {
     this.clear("homeCollapse");
-    if (this.pinned) return;
+    if (this.pinned || this.dictating) return;
     const ms = (this.byHover ? this.hoverCloseDelay : this.homeDelay) * 1000;
     this.homeCollapseDueAt = performance.now() + ms;
     this.homeCollapse = window.setTimeout(() => {
       this.homeCollapse = null;
       this.homeCollapseDueAt = null;
       // An alert pinned while the countdown ran keeps the island open.
-      if (this.state === "home" && !this.pinned) {
+      if (this.state === "home" && !this.pinned && !this.dictating) {
         this.byHover = false;
         this.transition("petit");
       }
