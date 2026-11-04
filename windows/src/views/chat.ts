@@ -435,7 +435,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
   // ── Dictation into this field ──
 
-  let dictation: DictationState = { phase: "idle", enabled: false };
+  let dictation: DictationState = { phase: "idle", enabled: false, key: "" };
 
   function drawMic() {
     const active = dictation.phase === "listening" || dictation.phase === "locked";
@@ -471,6 +471,36 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
     void Bridge.dictationAction(dictation.phase === "listening" || dictation.phase === "locked" ? "finish" : "dictate");
     input.focus();
   });
+
+  // The dictation key, seen from the field. The key watcher in Rust does this for every other
+  // program; here the field sees the key itself, so the chat dictates even when that watcher hears
+  // nothing. Both feed the same key logic in Rust, which takes a press both of them report once.
+  const KEY_CODES: Record<string, string> = { right_ctrl: "ControlRight", right_alt: "AltRight", right_shift: "ShiftRight" };
+  const dictationCode = () => KEY_CODES[dictation.key] ?? "";
+  let keyHeld = false;
+
+  function releaseKey() {
+    if (!keyHeld) return;
+    keyHeld = false;
+    void Bridge.dictationAction("chatKeyUp");
+  }
+
+  input.addEventListener("keydown", (e) => {
+    const code = dictationCode();
+    if (!code || !dictation.enabled) return;
+    if (e.code === code) {
+      if (e.repeat || keyHeld || mic.disabled) return;
+      keyHeld = true;
+      void Bridge.dictationAction("chatKeyDown");
+    } else if (keyHeld) {
+      void Bridge.dictationAction("chatKeyOther");
+    }
+  });
+  input.addEventListener("keyup", (e) => {
+    if (e.code === dictationCode()) releaseKey();
+  });
+  // The field lost the keyboard with the key down: the release will not come here.
+  input.addEventListener("blur", releaseKey);
 
   // What was said arrives as text, at the caret, for the person to read before sending.
   void onEvent<string>("flow-text", (text) => {

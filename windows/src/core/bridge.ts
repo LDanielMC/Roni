@@ -227,8 +227,13 @@ export const Bridge = {
   chatInputFocus: (focused: boolean) => call<void>("chat_input_focus", { focused }),
   /** Where the dictation is, for the chat's microphone button. */
   dictationState: () => call<DictationState>("dictation_state"),
-  /** The chat's microphone button: "dictate" starts hands-free, "finish" ends it, "cancel" drops it. */
-  dictationAction: (action: "dictate" | "finish" | "cancel") => call<void>("pill_action", { action, id: null }),
+  /**
+   * The chat's microphone button: "dictate" starts hands-free, "finish" ends it, "cancel" drops it.
+   * The chat's field also reports the dictation key it sees: "chatKeyDown", "chatKeyUp", and
+   * "chatKeyOther" for another key pressed while it is held (a shortcut, not dictation).
+   */
+  dictationAction: (action: "dictate" | "finish" | "cancel" | "chatKeyDown" | "chatKeyUp" | "chatKeyOther") =>
+    call<void>("pill_action", { action, id: null }),
 
   reposition: () => call<void>("reposition"),
   fitZoom: (dpr: number) => call<boolean>("fit_zoom", { dpr }),
@@ -564,6 +569,8 @@ export interface LocalServer {
 export interface DictationState {
   phase: string;
   enabled: boolean;
+  /** The dictation key: "right_ctrl", "right_alt", "right_shift"… ("wayland" or "" when the page cannot see it). */
+  key: string;
 }
 
 /** How Roni's gateway (OpenClaw) answers: what Settings and the chat's banner show. */

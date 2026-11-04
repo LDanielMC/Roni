@@ -52,6 +52,10 @@ pub enum KeyEvent {
     Finish,
     /// The pill's ✕.
     Cancel,
+    /// The chat's text field saw the dictation key go down / up: a second pair of eyes for
+    /// when the global key watcher hears nothing. Dropped when the watcher reported the same press.
+    ChatDown,
+    ChatUp,
     Quit,
 }
 
@@ -136,12 +140,14 @@ pub fn chat_input_focus(focused: bool) {
 pub struct DictationState {
     pub phase: String,
     pub enabled: bool,
+    /// The dictation key as the pages write it ("right_ctrl"…), so the chat's field can watch for it too.
+    pub key: String,
 }
 
 #[tauri::command]
 pub fn dictation_state(app: AppHandle) -> DictationState {
     let s = pill::get(&app).map(|p| p.state()).unwrap_or_default();
-    DictationState { phase: if s.phase.is_empty() { "idle".into() } else { s.phase }, enabled: s.enabled }
+    DictationState { phase: if s.phase.is_empty() { "idle".into() } else { s.phase }, enabled: s.enabled, key: s.key }
 }
 
 /// Hands the words to the chat's text field, and says whether it could. Only when
@@ -245,6 +251,8 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     let busy = Arc::new(AtomicBool::new(false));
     let mut ignored_logged: Option<Instant> = None;
     let mut key_held = false;
+    // When the global watcher last reported the dictation key (down, up or repeat).
+    let mut last_hook_key: Option<Instant> = None;
     loop {
         let active = listening.is_some() || logic.is_active();
         let received = if active {
@@ -264,8 +272,31 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
                 drop(listening.take());
                 break;
             }
-            Some((KeyEvent::Down, at)) => logic.key_down(secs(at)),
-            Some((KeyEvent::Up, at)) => logic.key_up(secs(at)),
+            Some((KeyEvent::Down, at)) => {
+                last_hook_key = Some(at);
+                logic.key_down(secs(at))
+            }
+            Some((KeyEvent::Up, at)) => {
+                last_hook_key = Some(at);
+                logic.key_up(secs(at))
+            }
+            // The chat's field saw the same key. Both feed the same key logic, so a press both
+            // report is a repeat to it; a press the watcher reported a moment ago is dropped
+            // here (a quick tap would otherwise come back as the first half of a double tap).
+            Some((KeyEvent::ChatDown, at)) => {
+                if reported_by_watcher(last_hook_key, at) {
+                    Action::None
+                } else {
+                    logic.key_down(secs(at))
+                }
+            }
+            Some((KeyEvent::ChatUp, at)) => {
+                if reported_by_watcher(last_hook_key, at) {
+                    Action::None
+                } else {
+                    logic.key_up(secs(at))
+                }
+            }
             Some((KeyEvent::Other, _)) => logic.other_key(),
             Some((KeyEvent::Escape, _)) => logic.escape(),
             Some((KeyEvent::HandsFree, _)) => {
@@ -303,11 +334,14 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
         // "does nothing" shows whether the press arrived and what the key logic did with it.
         // A repeat of a held key is not written down, except once in a while when a take
         // seems stuck.
-        if let Some((ev @ (KeyEvent::Down | KeyEvent::Up), _)) = received {
+        if let Some((ev @ (KeyEvent::Down | KeyEvent::Up | KeyEvent::ChatDown | KeyEvent::ChatUp), _)) = received {
             // A repeat is the key still being down, whatever the key logic did with it
             // (after a refused start the logic is idle again and would start anew).
-            let repeat = ev == KeyEvent::Down && key_held;
-            key_held = ev == KeyEvent::Down;
+            let from_watcher = matches!(ev, KeyEvent::Down | KeyEvent::Up);
+            let repeat = from_watcher && ev == KeyEvent::Down && key_held;
+            if from_watcher {
+                key_held = ev == KeyEvent::Down;
+            }
             let quiet = ignored_logged.is_some_and(|at| at.elapsed() < Duration::from_secs(5));
             if !repeat || !quiet {
                 crate::log::line(format!("flow: key {ev:?} -> {action:?} (key logic active {}, listening {})", logic.is_active(), listening.is_some()));
@@ -351,6 +385,13 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
         }
     }
     pill::update(&app, |s| s.phase = "idle".into());
+}
+
+/// The global watcher reported the dictation key a moment ago (the chat's copy of the press, or
+/// of the release, arrives a few milliseconds after it). Long enough for the page to answer,
+/// short enough that a real second press, when the watcher is silent, always gets through.
+fn reported_by_watcher(last: Option<Instant>, at: Instant) -> bool {
+    last.is_some_and(|h| at.saturating_duration_since(h) < Duration::from_millis(400))
 }
 
 /// Writes down a take that was thrown away without being transcribed, so a dictation
@@ -765,6 +806,18 @@ pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: O
             }
             flow.send(KeyEvent::HandsFree);
         }
+        // The chat's field saw the dictation key (see `KeyEvent::ChatDown`); "chatKeyOther" is
+        // another key pressed while it is held: a shortcut, not dictation.
+        "chatKeyDown" | "chatKeyUp" | "chatKeyOther" => {
+            if flow.running.lock().unwrap().is_none() {
+                return;
+            }
+            flow.send(match action.as_str() {
+                "chatKeyDown" => KeyEvent::ChatDown,
+                "chatKeyUp" => KeyEvent::ChatUp,
+                _ => KeyEvent::Other,
+            });
+        }
         "finish" => flow.send(KeyEvent::Finish),
         "cancel" => flow.send(KeyEvent::Cancel),
         "note" => crate::notes::toggle(&app),
@@ -804,7 +857,67 @@ mod chat_tests {
 
     #[test]
     fn the_island_hears_the_phase_in_the_shape_the_page_reads() {
-        let s = DictationState { phase: "locked".into(), enabled: true };
-        assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::json!({ "phase": "locked", "enabled": true }));
+        let s = DictationState { phase: "locked".into(), enabled: true, key: "right_ctrl".into() };
+        assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::json!({ "phase": "locked", "enabled": true, "key": "right_ctrl" }));
+    }
+
+    #[test]
+    fn the_chats_copy_of_a_key_is_dropped_only_right_after_the_watchers_own() {
+        let t0 = Instant::now();
+        let later = |ms| t0 + Duration::from_millis(ms);
+        // The watcher said nothing: the chat's key is the only one there is.
+        assert!(!reported_by_watcher(None, t0));
+        // The watcher reported the key a few milliseconds ago: this is its copy.
+        assert!(reported_by_watcher(Some(t0), later(30)));
+        assert!(reported_by_watcher(Some(t0), later(399)));
+        // Long after: a new press the watcher missed.
+        assert!(!reported_by_watcher(Some(t0), later(400)));
+        assert!(!reported_by_watcher(Some(t0), later(3000)));
+    }
+
+    /// Plays the key events of a take through the same decisions `run` makes, and counts the
+    /// takes started and finished.
+    fn play(events: &[(KeyEvent, u64)]) -> (u32, u32) {
+        use super::logic::{Action, KeyLogic};
+        let t0 = Instant::now();
+        let mut k = KeyLogic::default();
+        let mut last_hook: Option<Instant> = None;
+        let (mut starts, mut finishes) = (0, 0);
+        for &(ev, ms) in events {
+            let at = t0 + Duration::from_millis(ms);
+            let t = ms as f64 / 1000.0;
+            let action = match ev {
+                KeyEvent::Down => {
+                    last_hook = Some(at);
+                    k.key_down(t)
+                }
+                KeyEvent::Up => {
+                    last_hook = Some(at);
+                    k.key_up(t)
+                }
+                KeyEvent::ChatDown if !reported_by_watcher(last_hook, at) => k.key_down(t),
+                KeyEvent::ChatUp if !reported_by_watcher(last_hook, at) => k.key_up(t),
+                _ => Action::None,
+            };
+            match action {
+                Action::Start | Action::Restart => starts += 1,
+                Action::Finish => finishes += 1,
+                _ => {}
+            }
+        }
+        (starts, finishes)
+    }
+
+    #[test]
+    fn both_detectors_on_one_key_start_one_take_and_stop_it_once() {
+        use KeyEvent::*;
+        // The watcher first (the usual order), the chat a moment later.
+        assert_eq!(play(&[(Down, 0), (ChatDown, 25), (Up, 1500), (ChatUp, 1525)]), (1, 1));
+        // The chat first, the watcher a moment later: the key logic takes the second press as a repeat.
+        assert_eq!(play(&[(ChatDown, 0), (Down, 10), (ChatUp, 1500), (Up, 1510)]), (1, 1));
+        // The watcher is silent: the chat alone dictates.
+        assert_eq!(play(&[(ChatDown, 0), (ChatUp, 1500)]), (1, 1));
+        // A quick tap the watcher saw: the chat's late copy of the press must not turn it into a double tap.
+        assert_eq!(play(&[(Down, 0), (Up, 80), (ChatDown, 90), (ChatUp, 170)]), (1, 0));
     }
 }

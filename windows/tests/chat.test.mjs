@@ -367,8 +367,8 @@ test("a slow answer that lands while another provider is picked does not leave R
 // ── Dictation into the chat ───────────────────────────────────────────────────
 
 /** A chat that is on screen, with a text field whose value and caret the tests can set. */
-function dictChat(enabled = true, phase = "idle") {
-  answers.dictation_state = { phase, enabled };
+function dictChat(enabled = true, phase = "idle", key = "right_ctrl") {
+  answers.dictation_state = { phase, enabled, key };
   answers.roni_status = { state: "ok", url: "http://127.0.0.1:18789", message: "" };
   roniChat();
   const input = $(".chat-input");
@@ -426,6 +426,90 @@ test("the microphone starts the dictation, and while it listens the same button 
   emit("dictation-state", { phase: "thinking", enabled: true });
   assert.ok($(".mic-btn").disabled, "nothing to press while the words are being written");
   assert.ok(!$(".mic-btn").classList.contains("live"));
+  leave();
+});
+
+// ── The dictation key, seen from the field ──
+
+const actions = () => sent("pill_action").map((c) => c.action);
+
+test("the dictation key pressed in the field starts the dictation and releasing it finishes it", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  input.fire("keyup", { code: "ControlRight" });
+  assert.deepEqual(actions(), ["chatKeyDown", "chatKeyUp"]);
+  leave();
+});
+
+test("holding the key reports one press: key repeats and a second down without a release are ignored", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  input.fire("keydown", { code: "ControlRight", repeat: true });
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  input.fire("keyup", { code: "ControlRight" });
+  input.fire("keyup", { code: "ControlRight" }); // a release with nothing held says nothing
+  assert.deepEqual(actions(), ["chatKeyDown", "chatKeyUp"]);
+  leave();
+});
+
+test("another key while the dictation key is held is a shortcut, not dictation; on its own it says nothing", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "KeyV", repeat: false });
+  assert.deepEqual(actions(), [], "typing says nothing to the dictation");
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  input.fire("keydown", { code: "KeyV", repeat: false });
+  assert.deepEqual(actions(), ["chatKeyDown", "chatKeyOther"]);
+  leave();
+});
+
+test("the field losing the keyboard with the key down releases it once", async () => {
+  const input = dictChat();
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  input.blur();
+  input.fire("keyup", { code: "ControlRight" }); // it happens elsewhere or never: nothing more to say
+  assert.deepEqual(actions(), ["chatKeyDown", "chatKeyUp"]);
+  leave();
+});
+
+test("the field watches the key that is set for dictation, and nothing while dictation is off, being written or unreachable", async () => {
+  // Off: nothing.
+  let input = dictChat(false);
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  assert.deepEqual(actions(), []);
+  leave();
+  // Another key set in Settings: that one, not the Right Ctrl.
+  input = dictChat(true, "idle", "right_alt");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  assert.deepEqual(actions(), []);
+  input.fire("keydown", { code: "AltRight", repeat: false });
+  assert.deepEqual(actions(), ["chatKeyDown"]);
+  leave();
+  // A key the page cannot see (Wayland, Ctrl+Win): nothing.
+  input = dictChat(true, "idle", "wayland");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  assert.deepEqual(actions(), []);
+  leave();
+  // While the words are being written, as with the microphone button.
+  input = dictChat();
+  await flush();
+  emit("dictation-state", { phase: "thinking", enabled: true, key: "right_ctrl" });
+  calls.length = 0;
+  input.fire("keydown", { code: "ControlRight", repeat: false });
+  assert.deepEqual(actions(), []);
   leave();
 });
 

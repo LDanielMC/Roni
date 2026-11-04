@@ -189,7 +189,7 @@ pub fn update(app: &AppHandle, change: impl FnOnce(&mut PillState)) {
         let _ = app.emit_to(
             crate::island::WINDOW_LABEL,
             "dictation-state",
-            super::DictationState { phase: state.phase.clone(), enabled: state.enabled },
+            super::DictationState { phase: state.phase.clone(), enabled: state.enabled, key: state.key.clone() },
         );
     }
     let visible = state.enabled || state.note_started_at.is_some() || state.announcement.is_some() || state.voice.is_some() || state.phase != "idle";
