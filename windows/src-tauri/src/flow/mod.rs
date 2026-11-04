@@ -243,6 +243,7 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     let mut logic = KeyLogic::default();
     let mut listening: Option<Listening> = None;
     let busy = Arc::new(AtomicBool::new(false));
+    let mut ignored_logged: Option<Instant> = None;
     loop {
         let active = listening.is_some() || logic.is_active();
         let received = if active {
@@ -297,6 +298,18 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
             }
             None => logic.tick(secs(Instant::now())),
         };
+        // The dictation key itself (never any other key) leaves a trace, so a Ctrl that
+        // "does nothing" shows whether the press arrived and what the key logic did with it.
+        // A repeat of a held key is not written down, except once in a while when a take
+        // seems stuck.
+        if let Some((ev @ (KeyEvent::Down | KeyEvent::Up), _)) = received {
+            let repeat = ev == KeyEvent::Down && action == Action::None;
+            let quiet = ignored_logged.is_some_and(|at| at.elapsed() < Duration::from_secs(5));
+            if !repeat || !quiet {
+                crate::log::line(format!("flow: key {ev:?} -> {action:?} (key logic active {}, listening {})", logic.is_active(), listening.is_some()));
+                ignored_logged = if repeat { Some(Instant::now()) } else { None };
+            }
+        }
         match action {
             Action::None => {}
             Action::Start => {
@@ -348,6 +361,7 @@ fn log_dropped(listening: &Option<Listening>, what: &str, cause: Option<KeyEvent
 /// Opens the microphone. None (and the pill says why) when it can't.
 fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
     if !speech::is_ready() {
+        crate::log::line("flow: not listening: the voice model is not ready");
         pill::announce(
             app,
             "download",
