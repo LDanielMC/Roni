@@ -244,6 +244,7 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     let mut listening: Option<Listening> = None;
     let busy = Arc::new(AtomicBool::new(false));
     let mut ignored_logged: Option<Instant> = None;
+    let mut key_held = false;
     loop {
         let active = listening.is_some() || logic.is_active();
         let received = if active {
@@ -303,7 +304,10 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
         // A repeat of a held key is not written down, except once in a while when a take
         // seems stuck.
         if let Some((ev @ (KeyEvent::Down | KeyEvent::Up), _)) = received {
-            let repeat = ev == KeyEvent::Down && action == Action::None;
+            // A repeat is the key still being down, whatever the key logic did with it
+            // (after a refused start the logic is idle again and would start anew).
+            let repeat = ev == KeyEvent::Down && key_held;
+            key_held = ev == KeyEvent::Down;
             let quiet = ignored_logged.is_some_and(|at| at.elapsed() < Duration::from_secs(5));
             if !repeat || !quiet {
                 crate::log::line(format!("flow: key {ev:?} -> {action:?} (key logic active {}, listening {})", logic.is_active(), listening.is_some()));
@@ -361,7 +365,14 @@ fn log_dropped(listening: &Option<Listening>, what: &str, cause: Option<KeyEvent
 /// Opens the microphone. None (and the pill says why) when it can't.
 fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
     if !speech::is_ready() {
-        crate::log::line("flow: not listening: the voice model is not ready");
+        // Holding the key repeats the start about 30 times a second: one line in a while.
+        static LAST_LINE: Mutex<Option<Instant>> = Mutex::new(None);
+        let mut last = LAST_LINE.lock().unwrap();
+        if last.map_or(true, |at| at.elapsed() >= Duration::from_secs(5)) {
+            *last = Some(Instant::now());
+            crate::log::line("flow: not listening: the voice model is not ready");
+        }
+        drop(last);
         pill::announce(
             app,
             "download",
