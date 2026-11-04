@@ -313,6 +313,16 @@ fn spawn_poll(app: AppHandle, pill: Arc<Pill>) {
             let over = pill.hot.lock().unwrap().iter().any(|&(rx, ry, rw, rh)| x >= rx && x <= rx + rw && y >= ry && y <= ry + rh);
             if ignoring != Some(!over) {
                 ignoring = Some(!over);
+                // Only while hands-free, where the buttons are: where the mouse is against the zones taken.
+                if pill.state().phase == "locked" {
+                    let zones: Vec<String> =
+                        pill.hot.lock().unwrap().iter().map(|&(rx, ry, rw, rh)| format!("{rx:.0},{ry:.0} {rw:.0}x{rh:.0}")).collect();
+                    crate::log::line(format!(
+                        "flow: pill hands-free: the mouse at ({x:.0}, {y:.0}) is {} the pill's zones [{}]",
+                        if over { "inside" } else { "outside" },
+                        zones.join("; ")
+                    ));
+                }
                 let _ = win.set_ignore_cursor_events(!over);
                 let _ = win.emit("pill-pointer", over);
             }

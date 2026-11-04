@@ -2,7 +2,7 @@
 // only watches, it never swallows a key); the paste, through SendInput; and
 // the app in front, from the foreground window's program.
 
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -51,6 +51,8 @@ static KEY: AtomicU8 = AtomicU8::new(0);
 /// For Ctrl + Win: which of the two is down (bit 0 Ctrl, bit 1 Win).
 static COMBO: AtomicU8 = AtomicU8::new(0);
 static HELD: AtomicU8 = AtomicU8::new(0);
+/// The right Shift went down and nothing else has been pressed since: a tap, not a shortcut.
+static SHIFT_TAP: AtomicBool = AtomicBool::new(false);
 /// When the log last said what the hook was given for a Ctrl (milliseconds since 1970).
 static LAST_CTRL_NOTE: AtomicU64 = AtomicU64::new(0);
 
@@ -140,12 +142,24 @@ fn on_key(vk: u32, down: bool, up: bool) {
         }
         return;
     }
+    // A clean tap on the right Shift pastes a hands-free take; any other key in between makes it
+    // a shortcut (a capital letter), and it does nothing outside hands-free.
+    if vk == VK_RSHIFT {
+        if down {
+            SHIFT_TAP.store(true, Ordering::Relaxed);
+        } else if up && SHIFT_TAP.swap(false, Ordering::Relaxed) {
+            send(KeyEvent::Confirm);
+        }
+        return;
+    }
     if !down {
         return;
     }
     if vk == VK_ESCAPE {
+        SHIFT_TAP.store(false, Ordering::Relaxed);
         send(KeyEvent::Escape);
     } else if !is_modifier(vk) {
+        SHIFT_TAP.store(false, Ordering::Relaxed);
         send(KeyEvent::Other);
     }
 }
@@ -310,4 +324,41 @@ pub fn running_apps() -> Vec<(String, String)> {
 /// Whether the platform can listen for the key at all.
 pub fn keys_supported() -> Result<(), &'static str> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn events(rx: &std::sync::mpsc::Receiver<(KeyEvent, Instant)>) -> Vec<KeyEvent> {
+        rx.try_iter().map(|(e, _)| e).collect()
+    }
+
+    #[test]
+    fn a_clean_tap_on_the_right_shift_confirms_but_a_capital_letter_or_the_dictation_key_does_not() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        *SINK.lock().unwrap() = Some(tx);
+        KEY.store(0, Ordering::Relaxed); // the dictation key is the right Ctrl
+        // A tap.
+        on_key(VK_RSHIFT, true, false);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), [KeyEvent::Confirm]);
+        // A capital letter with the right Shift is a shortcut, not a tap.
+        on_key(VK_RSHIFT, true, false);
+        on_key(0x41, true, false);
+        on_key(0x41, false, true);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), [KeyEvent::Other]);
+        // A key that is held down and released alone before it is pressed again starts clean.
+        on_key(VK_RSHIFT, true, false);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), [KeyEvent::Confirm]);
+        // When the right Shift is the dictation key it dictates; it does not also confirm.
+        KEY.store(2, Ordering::Relaxed);
+        on_key(VK_RSHIFT, true, false);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), [KeyEvent::Down, KeyEvent::Up]);
+        KEY.store(0, Ordering::Relaxed);
+        *SINK.lock().unwrap() = None;
+    }
 }

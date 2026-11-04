@@ -505,6 +505,26 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   // The field lost the keyboard with the key down: the release will not come here.
   input.addEventListener("blur", releaseKey);
 
+  // While a dictation is open, Esc cancels it and a clean tap on the right Shift pastes a hands-free
+  // one: the same as the key watcher in Rust does for every other program.
+  let shiftTap = false;
+  input.addEventListener("keydown", (e) => {
+    if (e.code === "ShiftRight") shiftTap = true;
+    else if (!MODIFIER_KEYS.has(e.key)) shiftTap = false;
+    if (e.code === "Escape" && dictation.enabled && (dictation.phase === "listening" || dictation.phase === "locked")) {
+      void Bridge.dictationAction("cancel");
+    }
+  });
+  input.addEventListener("keyup", (e) => {
+    if (e.code !== "ShiftRight") return;
+    const tap = shiftTap;
+    shiftTap = false;
+    // When the right Shift is the dictation key itself, it already dictates.
+    if (tap && dictation.enabled && dictation.phase === "locked" && dictation.key !== "right_shift") {
+      void Bridge.dictationAction("finish");
+    }
+  });
+
   // What was said arrives as text, at the caret, for the person to read before sending.
   void onEvent<string>("flow-text", (text) => {
     if (!text) return; // even mid-send: Rust already told the pill it was written

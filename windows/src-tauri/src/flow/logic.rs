@@ -61,6 +61,11 @@ impl KeyLogic {
         self.phase != Phase::Idle
     }
 
+    /// Hands-free: the take stays open until it is finished or cancelled.
+    pub fn is_locked(&self) -> bool {
+        self.phase == Phase::Locked
+    }
+
     pub fn key_down(&mut self, t: f64) -> Action {
         match self.phase {
             Phase::Idle => {
@@ -224,7 +229,9 @@ mod tests {
         assert_eq!(k.key_down(0.3), Action::Lock);
         assert_eq!(k.key_up(0.35), Action::None);
         assert_eq!(k.phase(), Phase::Locked);
+        assert!(k.is_locked());
         assert_eq!(k.key_down(5.0), Action::Finish);
+        assert!(!k.is_locked());
     }
 
     #[test]

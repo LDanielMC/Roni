@@ -53,6 +53,8 @@ pub enum KeyEvent {
     Finish,
     /// The pill's ✕.
     Cancel,
+    /// A clean tap on the right Shift (seen by the key watcher): pastes a hands-free take, like the ✓.
+    Confirm,
     /// The chat's text field saw the dictation key go down / up: a second pair of eyes for
     /// when the global key watcher hears nothing. Dropped when the watcher reported the same press.
     ChatDown,
@@ -306,6 +308,15 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
             Some((KeyEvent::Cancel, _)) => {
                 logic.reset();
                 Action::Cancel
+            }
+            Some((KeyEvent::Confirm, _)) => {
+                if logic.is_locked() {
+                    crate::log::line("flow: a tap on the right Shift pasted the hands-free take");
+                    logic.reset();
+                    Action::Finish
+                } else {
+                    Action::None
+                }
             }
             None => logic.tick(secs(Instant::now())),
         };
@@ -834,6 +845,7 @@ pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: O
                 // Dictation off: the pill only shows for a call or a message.
                 return;
             }
+            crate::log::line("flow: pill action dictate");
             flow.send(KeyEvent::HandsFree);
         }
         // The chat's field saw the dictation key (see `KeyEvent::ChatDown`); "chatKeyOther" is
@@ -848,8 +860,16 @@ pub fn pill_action(app: AppHandle, flow: State<Arc<Flow>>, action: String, id: O
                 _ => KeyEvent::Other,
             });
         }
-        "finish" => flow.send(KeyEvent::Finish),
-        "cancel" => flow.send(KeyEvent::Cancel),
+        // What the pill's buttons (and the chat's microphone) ask for, written down so a click
+        // that "does nothing" shows whether it arrived.
+        "finish" => {
+            crate::log::line("flow: pill action finish");
+            flow.send(KeyEvent::Finish)
+        }
+        "cancel" => {
+            crate::log::line("flow: pill action cancel");
+            flow.send(KeyEvent::Cancel)
+        }
         "note" => crate::notes::toggle(&app),
         "stopNote" => crate::notes::stop(&app),
         "hub" => crate::show_hub(&app, None),

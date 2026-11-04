@@ -516,6 +516,50 @@ test("the field watches the key that is set for dictation, and nothing while dic
   leave();
 });
 
+test("Esc cancels a dictation that is open, and a clean tap on the right Shift pastes a hands-free one", async () => {
+  const input = dictChat(true, "locked");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "Escape", key: "Escape", repeat: false });
+  assert.deepEqual(actions(), ["cancel"]);
+  calls.length = 0;
+  // A tap: down and up with nothing in between.
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  assert.deepEqual(actions(), ["finish"]);
+  calls.length = 0;
+  // A capital letter with the right Shift is typing, not a tap.
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("keydown", { code: "KeyA", key: "A", repeat: false });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  assert.deepEqual(actions(), []);
+  leave();
+});
+
+test("Esc and the right Shift do nothing to the dictation when none is open, is off, or the Shift is the dictation key", async () => {
+  let input = dictChat(true, "idle");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "Escape", key: "Escape", repeat: false });
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  assert.deepEqual(actions(), [], "nothing to cancel or paste");
+  leave();
+  input = dictChat(false, "locked");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "Escape", key: "Escape", repeat: false });
+  assert.deepEqual(actions(), []);
+  leave();
+  input = dictChat(true, "locked", "right_shift");
+  await flush();
+  calls.length = 0;
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  assert.ok(!actions().includes("finish"), "as the dictation key it dictates; it is not also a paste");
+  leave();
+});
+
 test("pressing the microphone does not take the keyboard from the field", async () => {
   dictChat();
   await flush();
