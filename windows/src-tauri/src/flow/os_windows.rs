@@ -51,8 +51,16 @@ static KEY: AtomicU8 = AtomicU8::new(0);
 /// For Ctrl + Win: which of the two is down (bit 0 Ctrl, bit 1 Win).
 static COMBO: AtomicU8 = AtomicU8::new(0);
 static HELD: AtomicU8 = AtomicU8::new(0);
-/// The right Shift went down and nothing else has been pressed since: a tap, not a shortcut.
+/// The right Shift went down alone and nothing else has been pressed since: a tap, not a shortcut.
 static SHIFT_TAP: AtomicBool = AtomicBool::new(false);
+/// The right Shift is down (its key repeats are not new presses), and when it went down.
+static SHIFT_HELD: AtomicBool = AtomicBool::new(false);
+static SHIFT_DOWN_MS: AtomicU64 = AtomicU64::new(0);
+/// The other modifiers that are down (a bit each: left/right Ctrl, left/right Alt, left/right Win,
+/// left Shift): a right Shift tap with one of them is a shortcut (Alt+Shift changes the keyboard language).
+static MODS: AtomicU8 = AtomicU8::new(0);
+/// A tap is a quick touch: longer than this it is a key held on purpose.
+const TAP_MS: u64 = 400;
 /// When the log last said what the hook was given for a Ctrl (milliseconds since 1970).
 static LAST_CTRL_NOTE: AtomicU64 = AtomicU64::new(0);
 
@@ -73,10 +81,33 @@ fn send(event: KeyEvent) -> bool {
     }
 }
 
+fn now_ms() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Keeps `MODS` up to date.
+fn track_modifier(vk: u32, down: bool, up: bool) {
+    let bit = match vk {
+        VK_LCONTROL => 1,
+        VK_RCONTROL => 2,
+        VK_LMENU => 4,
+        VK_RMENU => 8,
+        VK_LWIN => 16,
+        VK_RWIN => 32,
+        VK_LSHIFT => 64,
+        _ => return,
+    };
+    if down {
+        MODS.fetch_or(bit, Ordering::Relaxed);
+    } else if up {
+        MODS.fetch_and(!bit, Ordering::Relaxed);
+    }
+}
+
 /// The right Ctrl (or a Ctrl without a side) went down: what the hook was given, once a
 /// second at most, written from another thread so the hook is never slowed.
 fn note_ctrl(vk: u32, injected: bool) {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    let now = now_ms();
     if now.saturating_sub(LAST_CTRL_NOTE.load(Ordering::Relaxed)) < 1000 {
         return;
     }
@@ -103,6 +134,11 @@ unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRE
 }
 
 fn on_key(vk: u32, down: bool, up: bool) {
+    track_modifier(vk, down, up);
+    // Any key but the right Shift itself (modifiers too) ends a tap in the making.
+    if down && vk != VK_RSHIFT {
+        SHIFT_TAP.store(false, Ordering::Relaxed);
+    }
     let key = KEY.load(Ordering::Relaxed);
     let ours = match key {
         0 => vk == VK_RCONTROL,
@@ -131,7 +167,7 @@ fn on_key(vk: u32, down: bool, up: bool) {
             // The first press of each hold only (not the repeats), to see whether a key that
             // "does nothing" reached this hook and whether it was queued for the dictation thread.
             // Written from another thread: a hook that is slow is removed by Windows without a word.
-            if first {
+            if first && !cfg!(test) {
                 // Builder, not spawn: a panic here would close the app from inside the hook.
                 let _ = std::thread::Builder::new()
                     .spawn(move || crate::log::line(format!("flow: hook saw the dictation key go down (queued {delivered})")));
@@ -142,13 +178,20 @@ fn on_key(vk: u32, down: bool, up: bool) {
         }
         return;
     }
-    // A clean tap on the right Shift pastes a hands-free take; any other key in between makes it
-    // a shortcut (a capital letter), and it does nothing outside hands-free.
+    // A clean tap on the right Shift pastes a hands-free take (it does nothing outside hands-free):
+    // pressed alone (no other modifier down), nothing pressed while it is down, and let go quickly.
+    // The repeats of a held Shift are not new presses.
     if vk == VK_RSHIFT {
         if down {
-            SHIFT_TAP.store(true, Ordering::Relaxed);
-        } else if up && SHIFT_TAP.swap(false, Ordering::Relaxed) {
-            send(KeyEvent::Confirm);
+            if !SHIFT_HELD.swap(true, Ordering::Relaxed) && MODS.load(Ordering::Relaxed) == 0 {
+                SHIFT_DOWN_MS.store(now_ms(), Ordering::Relaxed);
+                SHIFT_TAP.store(true, Ordering::Relaxed);
+            }
+        } else if up {
+            SHIFT_HELD.store(false, Ordering::Relaxed);
+            if SHIFT_TAP.swap(false, Ordering::Relaxed) && now_ms().saturating_sub(SHIFT_DOWN_MS.load(Ordering::Relaxed)) < TAP_MS {
+                send(KeyEvent::Confirm);
+            }
         }
         return;
     }
@@ -156,10 +199,8 @@ fn on_key(vk: u32, down: bool, up: bool) {
         return;
     }
     if vk == VK_ESCAPE {
-        SHIFT_TAP.store(false, Ordering::Relaxed);
         send(KeyEvent::Escape);
     } else if !is_modifier(vk) {
-        SHIFT_TAP.store(false, Ordering::Relaxed);
         send(KeyEvent::Other);
     }
 }
@@ -334,26 +375,77 @@ mod tests {
         rx.try_iter().map(|(e, _)| e).collect()
     }
 
-    #[test]
-    fn a_clean_tap_on_the_right_shift_confirms_but_a_capital_letter_or_the_dictation_key_does_not() {
+    /// The hook's state is global: the tests take turns.
+    static TURN: Mutex<()> = Mutex::new(());
+
+    /// A hook with nothing down, listening on a fresh channel.
+    fn fresh() -> (std::sync::MutexGuard<'static, ()>, std::sync::mpsc::Receiver<(KeyEvent, Instant)>) {
+        let turn = TURN.lock().unwrap_or_else(|e| e.into_inner());
         let (tx, rx) = std::sync::mpsc::channel();
         *SINK.lock().unwrap() = Some(tx);
         KEY.store(0, Ordering::Relaxed); // the dictation key is the right Ctrl
-        // A tap.
+        MODS.store(0, Ordering::Relaxed);
+        SHIFT_TAP.store(false, Ordering::Relaxed);
+        SHIFT_HELD.store(false, Ordering::Relaxed);
+        HELD.store(0, Ordering::Relaxed);
+        (turn, rx)
+    }
+
+    #[test]
+    fn a_clean_tap_on_the_right_shift_confirms() {
+        let (_turn, rx) = fresh();
         on_key(VK_RSHIFT, true, false);
         on_key(VK_RSHIFT, false, true);
         assert_eq!(events(&rx), [KeyEvent::Confirm]);
-        // A capital letter with the right Shift is a shortcut, not a tap.
+        *SINK.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn typing_a_capital_or_holding_the_shift_or_a_shortcut_does_not_confirm() {
+        let (_turn, rx) = fresh();
+        // A capital letter with the right Shift.
         on_key(VK_RSHIFT, true, false);
         on_key(0x41, true, false);
         on_key(0x41, false, true);
         on_key(VK_RSHIFT, false, true);
         assert_eq!(events(&rx), [KeyEvent::Other]);
-        // A key that is held down and released alone before it is pressed again starts clean.
+        // ...and a key repeat of the Shift after the letter does not arm it again.
+        on_key(VK_RSHIFT, true, false);
+        on_key(0x41, true, false);
+        on_key(VK_RSHIFT, true, false); // the repeat
+        on_key(0x41, false, true);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), [KeyEvent::Other]);
+        // Held on purpose: not a tap.
+        on_key(VK_RSHIFT, true, false);
+        SHIFT_DOWN_MS.store(now_ms().saturating_sub(1000), Ordering::Relaxed);
+        on_key(VK_RSHIFT, false, true);
+        assert_eq!(events(&rx), []);
+        // Ctrl, Alt or Win already down (Alt+Shift changes the keyboard language): a shortcut.
+        for vk in [VK_LCONTROL, VK_RCONTROL, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN, VK_LSHIFT] {
+            on_key(vk, true, false);
+            on_key(VK_RSHIFT, true, false);
+            on_key(VK_RSHIFT, false, true);
+            on_key(vk, false, true);
+            let got = events(&rx);
+            assert!(!got.contains(&KeyEvent::Confirm), "{vk:#x} + right Shift must not confirm: {got:?}");
+        }
+        // Another modifier pressed while the Shift is down.
+        on_key(VK_RSHIFT, true, false);
+        on_key(VK_LMENU, true, false);
+        on_key(VK_RSHIFT, false, true);
+        on_key(VK_LMENU, false, true);
+        assert!(!events(&rx).contains(&KeyEvent::Confirm));
+        // Everything let go: a tap works again.
         on_key(VK_RSHIFT, true, false);
         on_key(VK_RSHIFT, false, true);
         assert_eq!(events(&rx), [KeyEvent::Confirm]);
-        // When the right Shift is the dictation key it dictates; it does not also confirm.
+        *SINK.lock().unwrap() = None;
+    }
+
+    #[test]
+    fn when_the_right_shift_is_the_dictation_key_it_dictates_and_does_not_confirm() {
+        let (_turn, rx) = fresh();
         KEY.store(2, Ordering::Relaxed);
         on_key(VK_RSHIFT, true, false);
         on_key(VK_RSHIFT, false, true);

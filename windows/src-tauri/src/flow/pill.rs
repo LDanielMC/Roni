@@ -9,7 +9,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -296,6 +296,7 @@ pub fn set_hot(app: &AppHandle, rects: Vec<(f64, f64, f64, f64)>) {
 fn spawn_poll(app: AppHandle, pill: Arc<Pill>) {
     std::thread::spawn(move || {
         let mut ignoring: Option<bool> = None;
+        let mut last_note: Option<Instant> = None;
         loop {
             {
                 let (lock, cv) = &pill.poll;
@@ -314,7 +315,8 @@ fn spawn_poll(app: AppHandle, pill: Arc<Pill>) {
             if ignoring != Some(!over) {
                 ignoring = Some(!over);
                 // Only while hands-free, where the buttons are: where the mouse is against the zones taken.
-                if pill.state().phase == "locked" {
+                if pill.state().phase == "locked" && last_note.map_or(true, |at| at.elapsed() >= Duration::from_secs(1)) {
+                    last_note = Some(Instant::now());
                     let zones: Vec<String> =
                         pill.hot.lock().unwrap().iter().map(|&(rx, ry, rw, rh)| format!("{rx:.0},{ry:.0} {rw:.0}x{rh:.0}")).collect();
                     crate::log::line(format!(

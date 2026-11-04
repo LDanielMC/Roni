@@ -528,11 +528,31 @@ test("Esc cancels a dictation that is open, and a clean tap on the right Shift p
   input.fire("keyup", { code: "ShiftRight", key: "Shift" });
   assert.deepEqual(actions(), ["finish"]);
   calls.length = 0;
-  // A capital letter with the right Shift is typing, not a tap.
+  // A capital letter with the right Shift is typing, not a tap; the repeat of the Shift does not arm it again.
   input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
   input.fire("keydown", { code: "KeyA", key: "A", repeat: false });
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: true });
   input.fire("keyup", { code: "ShiftRight", key: "Shift" });
   assert.deepEqual(actions(), []);
+  // With Ctrl, Alt or Win (Alt+Shift changes the keyboard language): a shortcut.
+  for (const mod of ["ctrlKey", "altKey", "metaKey"]) {
+    input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false, [mod]: true });
+    input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  }
+  // Another modifier pressed while it is down, a click (Shift + click selects), or a long press.
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("keydown", { code: "AltLeft", key: "Alt", repeat: false });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false });
+  input.fire("mousedown");
+  input.fire("keyup", { code: "ShiftRight", key: "Shift" });
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false, timeStamp: 1000 });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift", timeStamp: 2500 });
+  assert.deepEqual(actions(), []);
+  // And a quick clean tap after all that still pastes.
+  input.fire("keydown", { code: "ShiftRight", key: "Shift", repeat: false, timeStamp: 5000 });
+  input.fire("keyup", { code: "ShiftRight", key: "Shift", timeStamp: 5120 });
+  assert.deepEqual(actions(), ["finish"]);
   leave();
 });
 

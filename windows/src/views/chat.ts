@@ -507,17 +507,31 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
 
   // While a dictation is open, Esc cancels it and a clean tap on the right Shift pastes a hands-free
   // one: the same as the key watcher in Rust does for every other program.
+  // A tap is the right Shift pressed alone (no Ctrl, Alt or Win with it), nothing else pressed or
+  // clicked while it is down, and let go quickly: anything else is a capital letter or a shortcut.
+  const TAP_MS = 400;
   let shiftTap = false;
+  let shiftDownAt = 0;
   input.addEventListener("keydown", (e) => {
-    if (e.code === "ShiftRight") shiftTap = true;
-    else if (!MODIFIER_KEYS.has(e.key)) shiftTap = false;
+    if (e.code === "ShiftRight") {
+      // The repeats of a held Shift are not new presses.
+      if (!e.repeat) {
+        shiftTap = !(e.ctrlKey || e.altKey || e.metaKey);
+        shiftDownAt = e.timeStamp ?? 0;
+      }
+    } else {
+      shiftTap = false;
+    }
     if (e.code === "Escape" && dictation.enabled && (dictation.phase === "listening" || dictation.phase === "locked")) {
       void Bridge.dictationAction("cancel");
     }
   });
+  input.addEventListener("mousedown", () => {
+    shiftTap = false; // Shift + click selects text
+  });
   input.addEventListener("keyup", (e) => {
     if (e.code !== "ShiftRight") return;
-    const tap = shiftTap;
+    const tap = shiftTap && (e.timeStamp ?? 0) - shiftDownAt < TAP_MS;
     shiftTap = false;
     // When the right Shift is the dictation key itself, it already dictates.
     if (tap && dictation.enabled && dictation.phase === "locked" && dictation.key !== "right_shift") {
