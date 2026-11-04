@@ -109,10 +109,12 @@ fn on_key(vk: u32, down: bool, up: bool) {
             let first = HELD.swap(1, Ordering::Relaxed) == 0;
             let delivered = send(KeyEvent::Down);
             // The first press of each hold only (not the repeats), to see whether a key that
-            // "does nothing" reached this hook and whether the dictation thread got it.
+            // "does nothing" reached this hook and whether it was queued for the dictation thread.
             // Written from another thread: a hook that is slow is removed by Windows without a word.
             if first {
-                std::thread::spawn(move || crate::log::line(format!("flow: hook saw the dictation key go down (queued {delivered})")));
+                // Builder, not spawn: a panic here would close the app from inside the hook.
+                let _ = std::thread::Builder::new()
+                    .spawn(move || crate::log::line(format!("flow: hook saw the dictation key go down (queued {delivered})")));
             }
         } else if up {
             HELD.store(0, Ordering::Relaxed);
