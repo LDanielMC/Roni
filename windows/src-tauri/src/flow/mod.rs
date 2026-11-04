@@ -48,9 +48,9 @@ pub enum KeyEvent {
     Escape,
     /// The pill's microphone: hands-free straight away.
     HandsFree,
-    /// The pill's ✓: paste now.
+    /// The pill's âœ“: paste now.
     Finish,
-    /// The pill's ✕.
+    /// The pill's âœ•.
     Cancel,
     /// The chat's text field saw the dictation key go down / up: a second pair of eyes for
     /// when the global key watcher hears nothing. Dropped when the watcher reported the same press.
@@ -82,7 +82,7 @@ pub fn get(app: &AppHandle) -> Option<Arc<Flow>> {
     app.try_state::<Arc<Flow>>().map(|s| s.inner().clone())
 }
 
-/// A program's name as people know it: "outlook" → "Outlook".
+/// A program's name as people know it: "outlook" â†’ "Outlook".
 pub fn display_name(stem: &str) -> String {
     let id = stem.to_lowercase();
     if let Some(s) = store::default_app_styles().into_iter().find(|s| s.id == id) {
@@ -117,7 +117,7 @@ fn is_terminal(id: &str) -> bool {
     }
 }
 
-// ── The island's chat ─────────────────────────────────────────────────────────
+// â”€â”€ The island's chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // When the chat's text field has the keyboard, what you dictate goes into the
 // field as text, straight from here: no clipboard, no Ctrl+V sent to whichever
@@ -140,7 +140,7 @@ pub fn chat_input_focus(focused: bool) {
 pub struct DictationState {
     pub phase: String,
     pub enabled: bool,
-    /// The dictation key as the pages write it ("right_ctrl"…), so the chat's field can watch for it too.
+    /// The dictation key as the pages write it ("right_ctrl"â€¦), so the chat's field can watch for it too.
     pub key: String,
 }
 
@@ -159,7 +159,7 @@ fn deliver_to_chat(app: &AppHandle, text: &str) -> bool {
     crate::platform::is_foreground(&island) && app.emit_to(crate::island::WINDOW_LABEL, "flow-text", text).is_ok()
 }
 
-// ── Setup, on and off ─────────────────────────────────────────────────────────
+// â”€â”€ Setup, on and off â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub fn setup(app: &AppHandle) {
     let flow = Arc::new(Flow { store: Mutex::new(Store::load()), running: Mutex::new(None) });
@@ -176,7 +176,7 @@ pub fn setup(app: &AppHandle) {
     crate::voice::sync(app);
 }
 
-/// The key as the pages write it ("right_ctrl"…), or "wayland" where the
+/// The key as the pages write it ("right_ctrl"â€¦), or "wayland" where the
 /// desktop holds the shortcut.
 fn key_id(key: logic::FlowKey) -> String {
     if os::keys_supported() == Err("wayland") {
@@ -234,7 +234,7 @@ fn disable(app: &AppHandle, flow: &Arc<Flow>) {
     }
 }
 
-// ── The dictation thread ──────────────────────────────────────────────────────
+// â”€â”€ The dictation thread â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 struct Listening {
     capture: audio::Capture,
@@ -251,8 +251,8 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     let busy = Arc::new(AtomicBool::new(false));
     let mut ignored_logged: Option<Instant> = None;
     let mut key_held = false;
-    // When the global watcher last reported the dictation key (down, up or repeat).
-    let mut last_hook_key: Option<Instant> = None;
+    // The dictation key reaches this thread from two eyes: the global watcher and the chat's field.
+    let mut sources = KeySources::default();
     loop {
         let active = listening.is_some() || logic.is_active();
         let received = if active {
@@ -272,30 +272,8 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
                 drop(listening.take());
                 break;
             }
-            Some((KeyEvent::Down, at)) => {
-                last_hook_key = Some(at);
-                logic.key_down(secs(at))
-            }
-            Some((KeyEvent::Up, at)) => {
-                last_hook_key = Some(at);
-                logic.key_up(secs(at))
-            }
-            // The chat's field saw the same key. Both feed the same key logic, so a press both
-            // report is a repeat to it; a press the watcher reported a moment ago is dropped
-            // here (a quick tap would otherwise come back as the first half of a double tap).
-            Some((KeyEvent::ChatDown, at)) => {
-                if reported_by_watcher(last_hook_key, at) {
-                    Action::None
-                } else {
-                    logic.key_down(secs(at))
-                }
-            }
-            Some((KeyEvent::ChatUp, at)) => {
-                if reported_by_watcher(last_hook_key, at) {
-                    Action::None
-                } else {
-                    logic.key_up(secs(at))
-                }
+            Some((ev @ (KeyEvent::Down | KeyEvent::Up | KeyEvent::ChatDown | KeyEvent::ChatUp), at)) => {
+                sources.key_action(&mut logic, ev, at, secs(at))
             }
             Some((KeyEvent::Other, _)) => logic.other_key(),
             Some((KeyEvent::Escape, _)) => logic.escape(),
@@ -387,11 +365,48 @@ fn run(app: AppHandle, flow: Arc<Flow>, rx: mpsc::Receiver<(KeyEvent, Instant)>)
     pill::update(&app, |s| s.phase = "idle".into());
 }
 
-/// The global watcher reported the dictation key a moment ago (the chat's copy of the press, or
-/// of the release, arrives a few milliseconds after it). Long enough for the page to answer,
-/// short enough that a real second press, when the watcher is silent, always gets through.
-fn reported_by_watcher(last: Option<Instant>, at: Instant) -> bool {
-    last.is_some_and(|h| at.saturating_duration_since(h) < Duration::from_millis(400))
+/// The dictation key as two eyes see it: the global watcher (every program) and the chat's
+/// field (only itself). Both feed the same key logic, so a press both report would count twice.
+/// Whoever reports a press or a release first goes through; the other's copy, which follows a few
+/// milliseconds later, is dropped once. A copy is only dropped when the other eye reported that
+/// very kind of event first and less than `COPY_WINDOW` ago, so with one eye shut the other works
+/// alone, and a second real press is never taken for the copy of the first.
+#[derive(Default)]
+struct KeySources {
+    /// [down, up]: when the chat reported it first (the watcher's copy is due).
+    watcher_due: [Option<Instant>; 2],
+    /// [down, up]: when the watcher reported it first (the chat's copy is due).
+    chat_due: [Option<Instant>; 2],
+}
+
+/// Long enough for the page to answer, short enough to be over before the next real press.
+const COPY_WINDOW: Duration = Duration::from_millis(400);
+
+impl KeySources {
+    fn key_action(&mut self, logic: &mut logic::KeyLogic, ev: KeyEvent, at: Instant, t: f64) -> Action {
+        let (from_watcher, up) = match ev {
+            KeyEvent::Down => (true, false),
+            KeyEvent::Up => (true, true),
+            KeyEvent::ChatDown => (false, false),
+            _ => (false, true),
+        };
+        let i = usize::from(up);
+        let (mine, theirs) = if from_watcher {
+            (&mut self.watcher_due[i], &mut self.chat_due[i])
+        } else {
+            (&mut self.chat_due[i], &mut self.watcher_due[i])
+        };
+        let is_copy = mine.take().is_some_and(|first| at.saturating_duration_since(first) < COPY_WINDOW);
+        if is_copy {
+            return Action::None;
+        }
+        *theirs = Some(at);
+        if up {
+            logic.key_up(t)
+        } else {
+            logic.key_down(t)
+        }
+    }
 }
 
 /// Writes down a take that was thrown away without being transcribed, so a dictation
@@ -418,7 +433,7 @@ fn begin(app: &AppHandle, flow: &Arc<Flow>) -> Option<Listening> {
             app,
             "download",
             "#3B9EFF",
-            t("Download the voice model first, in Roni → Settings → Recognition."),
+            t("Download the voice model first, in Roni â†’ Settings â†’ Recognition."),
             Some((t("Open Settings"), "openSettings")),
             10,
         );
@@ -561,7 +576,7 @@ fn paste_again(app: &AppHandle, flow: &Arc<Flow>) {
     }
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
+// â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -776,7 +791,7 @@ pub fn flow_models_remove(app: AppHandle) {
     speech::remove(&app);
 }
 
-// ── The pill's page ───────────────────────────────────────────────────────────
+// â”€â”€ The pill's page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[tauri::command]
 pub fn pill_state(app: AppHandle) -> Option<pill::PillState> {
@@ -861,63 +876,76 @@ mod chat_tests {
         assert_eq!(serde_json::to_value(&s).unwrap(), serde_json::json!({ "phase": "locked", "enabled": true, "key": "right_ctrl" }));
     }
 
-    #[test]
-    fn the_chats_copy_of_a_key_is_dropped_only_right_after_the_watchers_own() {
+    /// Plays the key events of a take through the very function `run` uses, and returns what the
+    /// key logic decided, leaving out the nothings. `HandsFree` is the chat's microphone button
+    /// (counted as a Start); the rest is the dictation key.
+    fn play(events: &[(KeyEvent, u64)]) -> Vec<Action> {
         let t0 = Instant::now();
-        let later = |ms| t0 + Duration::from_millis(ms);
-        // The watcher said nothing: the chat's key is the only one there is.
-        assert!(!reported_by_watcher(None, t0));
-        // The watcher reported the key a few milliseconds ago: this is its copy.
-        assert!(reported_by_watcher(Some(t0), later(30)));
-        assert!(reported_by_watcher(Some(t0), later(399)));
-        // Long after: a new press the watcher missed.
-        assert!(!reported_by_watcher(Some(t0), later(400)));
-        assert!(!reported_by_watcher(Some(t0), later(3000)));
-    }
-
-    /// Plays the key events of a take through the same decisions `run` makes, and counts the
-    /// takes started and finished.
-    fn play(events: &[(KeyEvent, u64)]) -> (u32, u32) {
-        use super::logic::{Action, KeyLogic};
-        let t0 = Instant::now();
-        let mut k = KeyLogic::default();
-        let mut last_hook: Option<Instant> = None;
-        let (mut starts, mut finishes) = (0, 0);
+        let mut logic = logic::KeyLogic::default();
+        let mut sources = KeySources::default();
+        let mut out = Vec::new();
         for &(ev, ms) in events {
-            let at = t0 + Duration::from_millis(ms);
-            let t = ms as f64 / 1000.0;
+            let (at, t) = (t0 + Duration::from_millis(ms), ms as f64 / 1000.0);
             let action = match ev {
-                KeyEvent::Down => {
-                    last_hook = Some(at);
-                    k.key_down(t)
+                KeyEvent::HandsFree => {
+                    logic.lock();
+                    Action::Start
                 }
-                KeyEvent::Up => {
-                    last_hook = Some(at);
-                    k.key_up(t)
-                }
-                KeyEvent::ChatDown if !reported_by_watcher(last_hook, at) => k.key_down(t),
-                KeyEvent::ChatUp if !reported_by_watcher(last_hook, at) => k.key_up(t),
-                _ => Action::None,
+                KeyEvent::Other => logic.other_key(),
+                _ => sources.key_action(&mut logic, ev, at, t),
             };
-            match action {
-                Action::Start | Action::Restart => starts += 1,
-                Action::Finish => finishes += 1,
-                _ => {}
+            if action != Action::None {
+                out.push(action);
             }
         }
-        (starts, finishes)
+        out
     }
 
     #[test]
-    fn both_detectors_on_one_key_start_one_take_and_stop_it_once() {
-        use KeyEvent::*;
+    fn both_eyes_on_one_key_start_one_take_and_stop_it_once() {
+        use Action::{Finish, Start};
+        use KeyEvent::{ChatDown, ChatUp, Down, Up};
         // The watcher first (the usual order), the chat a moment later.
-        assert_eq!(play(&[(Down, 0), (ChatDown, 25), (Up, 1500), (ChatUp, 1525)]), (1, 1));
-        // The chat first, the watcher a moment later: the key logic takes the second press as a repeat.
-        assert_eq!(play(&[(ChatDown, 0), (Down, 10), (ChatUp, 1500), (Up, 1510)]), (1, 1));
+        assert_eq!(play(&[(Down, 0), (ChatDown, 25), (Up, 1500), (ChatUp, 1525)]), [Start, Finish]);
+        // The chat first, the watcher a moment later.
+        assert_eq!(play(&[(ChatDown, 0), (Down, 10), (ChatUp, 1500), (Up, 1510)]), [Start, Finish]);
         // The watcher is silent: the chat alone dictates.
-        assert_eq!(play(&[(ChatDown, 0), (ChatUp, 1500)]), (1, 1));
-        // A quick tap the watcher saw: the chat's late copy of the press must not turn it into a double tap.
-        assert_eq!(play(&[(Down, 0), (Up, 80), (ChatDown, 90), (ChatUp, 170)]), (1, 0));
+        assert_eq!(play(&[(ChatDown, 0), (ChatUp, 1500)]), [Start, Finish]);
+        // The chat is silent (the field has no keyboard): the watcher alone, as always.
+        assert_eq!(play(&[(Down, 0), (Up, 1500)]), [Start, Finish]);
+        // Key repeats while held (the watcher sends them), then the release and its copy.
+        assert_eq!(play(&[(Down, 0), (ChatDown, 20), (Down, 500), (Down, 530), (Up, 3000), (ChatUp, 3020)]), [Start, Finish]);
+        // Two holds one after the other, both eyes open: two takes, none lost as the copy of the other.
+        assert_eq!(
+            play(&[(Down, 0), (ChatDown, 20), (Up, 1500), (ChatUp, 1520), (Down, 2000), (ChatDown, 2020), (Up, 3500), (ChatUp, 3520)]),
+            [Start, Finish, Start, Finish]
+        );
+    }
+
+    #[test]
+    fn a_quick_tap_stays_a_tap_and_two_quick_taps_still_go_hands_free() {
+        use Action::{Lock, Start};
+        use KeyEvent::{ChatDown, ChatUp, Down, Up};
+        // A tap the watcher saw: the chat's late copy must not come back as the first half of a double tap.
+        assert_eq!(play(&[(Down, 0), (Up, 80), (ChatDown, 90), (ChatUp, 170)]), [Start]);
+        // The same, the chat first.
+        assert_eq!(play(&[(ChatDown, 0), (ChatUp, 80), (Down, 10), (Up, 90)]), [Start]);
+        // A real double tap, both eyes open and very quick: the second press is not the first one's copy.
+        assert_eq!(
+            play(&[(Down, 0), (ChatDown, 20), (Up, 80), (ChatUp, 100), (Down, 200), (ChatDown, 220), (Up, 280), (ChatUp, 300)]),
+            [Start, Lock]
+        );
+    }
+
+    #[test]
+    fn the_key_ends_a_hands_free_take_once_and_a_shortcut_does_not_end_it() {
+        use Action::{Finish, Start};
+        use KeyEvent::{ChatDown, ChatUp, Down, HandsFree, Other, Up};
+        // Started with the microphone button, ended by the key: the watcher first...
+        assert_eq!(play(&[(HandsFree, 0), (Down, 3000), (ChatDown, 3020), (Up, 3100), (ChatUp, 3120)]), [Start, Finish]);
+        // ...and the chat first.
+        assert_eq!(play(&[(HandsFree, 0), (ChatDown, 3000), (Down, 3010), (ChatUp, 3100), (Up, 3110)]), [Start, Finish]);
+        // Another key while hands-free is typing, not a cancel.
+        assert_eq!(play(&[(HandsFree, 0), (Other, 500)]), [Start]);
     }
 }

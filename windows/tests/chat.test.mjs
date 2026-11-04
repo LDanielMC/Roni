@@ -462,8 +462,11 @@ test("another key while the dictation key is held is a shortcut, not dictation; 
   calls.length = 0;
   input.fire("keydown", { code: "KeyV", repeat: false });
   assert.deepEqual(actions(), [], "typing says nothing to the dictation");
-  input.fire("keydown", { code: "ControlRight", repeat: false });
-  input.fire("keydown", { code: "KeyV", repeat: false });
+  input.fire("keydown", { code: "ControlRight", key: "Control", repeat: false });
+  // A modifier is not "another key": the watcher in Rust does not count it either (AltGr sends a fake Ctrl).
+  for (const key of ["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"]) input.fire("keydown", { code: `${key}Left`, key, repeat: false });
+  assert.deepEqual(actions(), ["chatKeyDown"]);
+  input.fire("keydown", { code: "KeyV", key: "v", repeat: false });
   assert.deepEqual(actions(), ["chatKeyDown", "chatKeyOther"]);
   leave();
 });

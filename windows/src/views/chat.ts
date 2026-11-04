@@ -476,6 +476,7 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
   // program; here the field sees the key itself, so the chat dictates even when that watcher hears
   // nothing. Both feed the same key logic in Rust, which takes a press both of them report once.
   const KEY_CODES: Record<string, string> = { right_ctrl: "ControlRight", right_alt: "AltRight", right_shift: "ShiftRight" };
+  const MODIFIER_KEYS = new Set(["Shift", "Control", "Alt", "AltGraph", "Meta", "CapsLock"]);
   const dictationCode = () => KEY_CODES[dictation.key] ?? "";
   let keyHeld = false;
 
@@ -492,7 +493,9 @@ export function buildPrompt(onHeightChange: () => void): ViewHost {
       if (e.repeat || keyHeld || mic.disabled) return;
       keyHeld = true;
       void Bridge.dictationAction("chatKeyDown");
-    } else if (keyHeld) {
+    } else if (keyHeld && !MODIFIER_KEYS.has(e.key)) {
+      // Not a modifier: like the key watcher in Rust, which does not count them either (AltGr
+      // even sends a fake left Ctrl).
       void Bridge.dictationAction("chatKeyOther");
     }
   });
