@@ -2,7 +2,7 @@
 // only watches, it never swallows a key); the paste, through SendInput; and
 // the app in front, from the foreground window's program.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -51,6 +51,12 @@ static KEY: AtomicU8 = AtomicU8::new(0);
 /// For Ctrl + Win: which of the two is down (bit 0 Ctrl, bit 1 Win).
 static COMBO: AtomicU8 = AtomicU8::new(0);
 static HELD: AtomicU8 = AtomicU8::new(0);
+/// How many key events the hook has been called with (a count, never which keys), and a
+/// number that changes whenever the hook is replaced or removed. For the log only: a Ctrl
+/// that "does nothing" then shows whether the hook was alive and what it was given.
+static CALLS: AtomicU64 = AtomicU64::new(0);
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+static LAST_CTRL_NOTE: AtomicU64 = AtomicU64::new(0);
 
 fn key_code(key: FlowKey) -> u8 {
     match key {
@@ -69,11 +75,29 @@ fn send(event: KeyEvent) -> bool {
     }
 }
 
+/// The right Ctrl (or a Ctrl without a side) went down: what the hook was given, once a
+/// second at most, written from another thread so the hook is never slowed.
+fn note_ctrl(vk: u32, injected: bool) {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+    if now.saturating_sub(LAST_CTRL_NOTE.load(Ordering::Relaxed)) < 1000 {
+        return;
+    }
+    LAST_CTRL_NOTE.store(now, Ordering::Relaxed);
+    let calls = CALLS.load(Ordering::Relaxed);
+    let _ = std::thread::Builder::new()
+        .spawn(move || crate::log::line(format!("flow: hook was given Ctrl vk={vk:#x} injected={injected} (key events so far {calls})")));
+}
+
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        let injected = info.flags.0 & LLKHF_INJECTED.0 != 0;
+        CALLS.fetch_add(1, Ordering::Relaxed);
+        if matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN) && matches!(info.vkCode, 0x11 | VK_RCONTROL) {
+            note_ctrl(info.vkCode, injected);
+        }
         // Our own Ctrl+V, and other programs' synthetic keys, are not the user's.
-        if info.flags.0 & LLKHF_INJECTED.0 == 0 {
+        if !injected {
             let down = matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN);
             let up = matches!(wparam.0 as u32, WM_KEYUP | WM_SYSKEYUP);
             on_key(info.vkCode, down, up);
@@ -147,6 +171,7 @@ impl Drop for KeyListener {
             let _ = t.join();
         }
         *SINK.lock().unwrap() = None;
+        GENERATION.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -176,7 +201,22 @@ pub fn listen(key: FlowKey, tx: Sender<(KeyEvent, Instant)>) -> Result<KeyListen
         })
         .map_err(|e| e.to_string())?;
     match ready_rx.recv_timeout(Duration::from_secs(3)) {
-        Ok(Ok(thread_id)) => Ok(KeyListener { thread_id, thread: Some(thread) }),
+        Ok(Ok(thread_id)) => {
+            // While this hook lives, say now and then whether it is being called at all.
+            let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
+            let _ = std::thread::Builder::new().name("roni-flow-keys-watch".into()).spawn(move || {
+                let mut last = CALLS.load(Ordering::Relaxed);
+                while GENERATION.load(Ordering::Relaxed) == generation {
+                    std::thread::sleep(Duration::from_secs(10));
+                    let now = CALLS.load(Ordering::Relaxed);
+                    if now != last && GENERATION.load(Ordering::Relaxed) == generation {
+                        crate::log::line(format!("flow: hook alive: {} key events in the last 10 s", now - last));
+                        last = now;
+                    }
+                }
+            });
+            Ok(KeyListener { thread_id, thread: Some(thread) })
+        }
         Ok(Err(err)) => Err(err),
         Err(_) => Err("the keyboard hook did not start".into()),
     }
