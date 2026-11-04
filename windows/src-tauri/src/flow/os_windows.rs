@@ -51,11 +51,7 @@ static KEY: AtomicU8 = AtomicU8::new(0);
 /// For Ctrl + Win: which of the two is down (bit 0 Ctrl, bit 1 Win).
 static COMBO: AtomicU8 = AtomicU8::new(0);
 static HELD: AtomicU8 = AtomicU8::new(0);
-/// How many key events the hook has been called with (a count, never which keys), and a
-/// number that changes whenever the hook is replaced or removed. For the log only: a Ctrl
-/// that "does nothing" then shows whether the hook was alive and what it was given.
-static CALLS: AtomicU64 = AtomicU64::new(0);
-static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// When the log last said what the hook was given for a Ctrl (milliseconds since 1970).
 static LAST_CTRL_NOTE: AtomicU64 = AtomicU64::new(0);
 
 fn key_code(key: FlowKey) -> u8 {
@@ -83,16 +79,14 @@ fn note_ctrl(vk: u32, injected: bool) {
         return;
     }
     LAST_CTRL_NOTE.store(now, Ordering::Relaxed);
-    let calls = CALLS.load(Ordering::Relaxed);
     let _ = std::thread::Builder::new()
-        .spawn(move || crate::log::line(format!("flow: hook was given Ctrl vk={vk:#x} injected={injected} (key events so far {calls})")));
+        .spawn(move || crate::log::line(format!("flow: hook was given Ctrl vk={vk:#x} injected={injected}")));
 }
 
 unsafe extern "system" fn hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
         let injected = info.flags.0 & LLKHF_INJECTED.0 != 0;
-        CALLS.fetch_add(1, Ordering::Relaxed);
         if matches!(wparam.0 as u32, WM_KEYDOWN | WM_SYSKEYDOWN) && matches!(info.vkCode, 0x11 | VK_RCONTROL) {
             note_ctrl(info.vkCode, injected);
         }
@@ -171,7 +165,6 @@ impl Drop for KeyListener {
             let _ = t.join();
         }
         *SINK.lock().unwrap() = None;
-        GENERATION.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -202,19 +195,6 @@ pub fn listen(key: FlowKey, tx: Sender<(KeyEvent, Instant)>) -> Result<KeyListen
         .map_err(|e| e.to_string())?;
     match ready_rx.recv_timeout(Duration::from_secs(3)) {
         Ok(Ok(thread_id)) => {
-            // While this hook lives, say now and then whether it is being called at all.
-            let generation = GENERATION.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = std::thread::Builder::new().name("roni-flow-keys-watch".into()).spawn(move || {
-                let mut last = CALLS.load(Ordering::Relaxed);
-                while GENERATION.load(Ordering::Relaxed) == generation {
-                    std::thread::sleep(Duration::from_secs(10));
-                    let now = CALLS.load(Ordering::Relaxed);
-                    if now != last && GENERATION.load(Ordering::Relaxed) == generation {
-                        crate::log::line(format!("flow: hook alive: {} key events in the last 10 s", now - last));
-                        last = now;
-                    }
-                }
-            });
             Ok(KeyListener { thread_id, thread: Some(thread) })
         }
         Ok(Err(err)) => Err(err),
