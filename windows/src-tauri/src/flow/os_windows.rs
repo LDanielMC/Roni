@@ -61,7 +61,7 @@ fn key_code(key: FlowKey) -> u8 {
     }
 }
 
-/// Whether the dictation thread got the event.
+/// Whether the event was queued for the dictation thread (false: nobody is listening).
 fn send(event: KeyEvent) -> bool {
     match SINK.lock().unwrap().as_ref() {
         Some(tx) => tx.send((event, Instant::now())).is_ok(),
@@ -110,8 +110,9 @@ fn on_key(vk: u32, down: bool, up: bool) {
             let delivered = send(KeyEvent::Down);
             // The first press of each hold only (not the repeats), to see whether a key that
             // "does nothing" reached this hook and whether the dictation thread got it.
+            // Written from another thread: a hook that is slow is removed by Windows without a word.
             if first {
-                crate::log::line(format!("flow: hook saw the dictation key go down (delivered {delivered})"));
+                std::thread::spawn(move || crate::log::line(format!("flow: hook saw the dictation key go down (queued {delivered})")));
             }
         } else if up {
             HELD.store(0, Ordering::Relaxed);
