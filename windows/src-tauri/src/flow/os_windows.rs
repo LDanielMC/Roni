@@ -61,9 +61,11 @@ fn key_code(key: FlowKey) -> u8 {
     }
 }
 
-fn send(event: KeyEvent) {
-    if let Some(tx) = SINK.lock().unwrap().as_ref() {
-        let _ = tx.send((event, Instant::now()));
+/// Whether the dictation thread got the event.
+fn send(event: KeyEvent) -> bool {
+    match SINK.lock().unwrap().as_ref() {
+        Some(tx) => tx.send((event, Instant::now())).is_ok(),
+        None => false,
     }
 }
 
@@ -104,8 +106,13 @@ fn on_key(vk: u32, down: bool, up: bool) {
     }
     if ours {
         if down {
-            HELD.store(1, Ordering::Relaxed);
-            send(KeyEvent::Down);
+            let first = HELD.swap(1, Ordering::Relaxed) == 0;
+            let delivered = send(KeyEvent::Down);
+            // The first press of each hold only (not the repeats), to see whether a key that
+            // "does nothing" reached this hook and whether the dictation thread got it.
+            if first {
+                crate::log::line(format!("flow: hook saw the dictation key go down (delivered {delivered})"));
+            }
         } else if up {
             HELD.store(0, Ordering::Relaxed);
             send(KeyEvent::Up);
